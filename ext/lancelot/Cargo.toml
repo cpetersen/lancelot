@@ -8,12 +8,19 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.7", features = ["rb-sys"] }
-# lance = { version = "0.17", default-features = false }
-# tokio = { version = "1", features = ["full"] }
-# arrow = "52"
-# arrow-array = "52"
-# arrow-schema = "52"
-# futures = "0.3"
-thiserror = "1"
+lance = { version = "0.31", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+arrow = "55"
+arrow-array = "55"
+arrow-schema = "55"
+arrow-data = "55"
+futures = "0.3"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[package.metadata]
+# Minimum supported Rust version
+rust-version = "1.86.0"
 
 [dev-dependencies]
