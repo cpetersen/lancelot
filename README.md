@@ -2,7 +2,15 @@
 
 Ruby bindings for [Lance](https://github.com/lancedb/lance), a modern columnar data format for ML. Lancelot provides a Ruby-native interface to Lance, enabling efficient storage and search of multimodal data including text, vectors, and more.
 
-## Features (Planned)
+## Features
+
+### Implemented
+- **Dataset Creation**: Create Lance datasets with schemas
+- **Data Storage**: Add documents to datasets  
+- **Schema Support**: Define schemas with string and float32 types
+- **Row Counting**: Get the number of rows in a dataset
+
+### Planned
 
 - **Columnar Storage**: Efficient storage using Lance's columnar format
 - **Full-Text Search**: Built-in full-text search capabilities
@@ -30,24 +38,39 @@ gem install lancelot
 ```ruby
 require 'lancelot'
 
-# Create or open a dataset
-dataset = Lancelot::Dataset.create("path/to/dataset")
+# Create a dataset with a schema
+dataset = Lancelot::Dataset.create("path/to/dataset", schema: {
+  text: :string,
+  score: :float32
+})
 
-# Add documents with text and vectors
+# Add documents
 dataset.add_documents([
-  { 
-    text: "Ruby is a dynamic programming language", 
-    vector: [0.1, 0.2, 0.3, ...],
-    metadata: { category: "programming" }
-  }
+  { text: "Ruby is a dynamic programming language", score: 0.95 },
+  { text: "Python is great for data science", score: 0.88 }
 ])
 
-# Search using text, vectors, or both
-results = dataset.search(
-  text: "programming language",
-  limit: 10
-)
+# Or use the << operator
+dataset << { text: "JavaScript runs everywhere", score: 0.92 }
+
+# Open an existing dataset
+dataset = Lancelot::Dataset.open("path/to/dataset")
+
+# Get the count
+puts dataset.count  # => 3
+
+# Get the schema
+puts dataset.schema  # => { text: "string", score: "float32" }
 ```
+
+**Current Limitations:**
+- Schema must be defined when creating a dataset
+- Only supports `text` (string) and `score` (float32) fields currently
+- Schema evolution is not yet implemented (Lance supports it, but our bindings don't expose it yet)
+- Vector support and search functionality are coming in the next release
+
+**Note on Lance's Schema Flexibility:**
+Lance itself supports schema evolution - you can add new columns without rewriting data. However, our current Ruby bindings have simplified this and require an upfront schema. This will be improved in future releases to expose Lance's full flexibility.
 
 ## Development
 

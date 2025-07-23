@@ -9,5 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial gem structure with Magnus/Rust integration
-- Basic Dataset class placeholder
+- Basic Dataset class with create/open functionality
+- Core data storage with Lance integration
+- Schema definition support for string and float32 types
+- Document addition with add_documents and << methods
+- Row counting functionality
+- Comprehensive test suite for Phase 2 features
 - Project setup and configuration
