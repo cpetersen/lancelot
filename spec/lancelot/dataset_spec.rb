@@ -116,4 +116,71 @@ RSpec.describe Lancelot::Dataset do
       expect(dataset.length).to eq(2)
     end
   end
+
+  describe "document retrieval" do
+    let(:dataset) do
+      schema = { text: :string, score: :float32 }
+      Lancelot::Dataset.create(dataset_path, schema: schema)
+    end
+
+    before do
+      dataset.add_documents([
+        { text: "Ruby is great", score: 0.95 },
+        { text: "Python is cool", score: 0.75 },
+        { text: "JavaScript is everywhere", score: 0.85 }
+      ])
+    end
+
+    describe "#all" do
+      it "returns all documents" do
+        docs = dataset.all
+        expect(docs).to be_an(Array)
+        expect(docs.length).to eq(3)
+        expect(docs.first[:text]).to eq("Ruby is great")
+      end
+    end
+
+    describe "#first" do
+      it "returns the first document when called without argument" do
+        doc = dataset.first
+        expect(doc).to be_a(Hash)
+        expect(doc[:text]).to eq("Ruby is great")
+      end
+
+      it "returns the first n documents when called with argument" do
+        docs = dataset.first(2)
+        expect(docs).to be_an(Array)
+        expect(docs.length).to eq(2)
+        expect(docs[0][:text]).to eq("Ruby is great")
+        expect(docs[1][:text]).to eq("Python is cool")
+      end
+    end
+
+    describe "#each" do
+      it "yields each document" do
+        texts = []
+        dataset.each { |doc| texts << doc[:text] }
+        expect(texts).to eq(["Ruby is great", "Python is cool", "JavaScript is everywhere"])
+      end
+
+      it "returns an enumerator when no block given" do
+        enum = dataset.each
+        expect(enum).to be_an(Enumerator)
+        expect(enum.to_a.length).to eq(3)
+      end
+    end
+
+    describe "Enumerable methods" do
+      it "supports map" do
+        texts = dataset.map { |doc| doc[:text] }
+        expect(texts).to eq(["Ruby is great", "Python is cool", "JavaScript is everywhere"])
+      end
+
+      it "supports select" do
+        high_score_docs = dataset.select { |doc| doc[:score] && doc[:score] >= 0.9 }
+        expect(high_score_docs.length).to eq(1)
+        expect(high_score_docs.first[:text]).to eq("Ruby is great")
+      end
+    end
+  end
 end

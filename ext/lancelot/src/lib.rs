@@ -7,8 +7,9 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 use lance::Dataset;
 use arrow_schema::{DataType, Field, Schema as ArrowSchema};
-use arrow_array::{RecordBatch, RecordBatchIterator, StringArray, Float32Array, ArrayRef};
+use arrow_array::{RecordBatch, RecordBatchIterator, StringArray, Float32Array, ArrayRef, Array};
 use std::collections::HashMap;
+use futures::stream::{StreamExt, TryStreamExt};
 
 #[magnus::wrap(class = "Lancelot::Dataset", free_immediately, size)]
 struct LancelotDataset {
@@ -125,6 +126,70 @@ impl LancelotDataset {
         hash.aset(Symbol::new("score"), "float32")?;
 
         Ok(hash)
+    }
+
+    fn scan_all(&self) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
+    }
+
+    fn scan_limit(&self, limit: i64) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            scanner.limit(Some(limit), None);
+            
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
     }
 }
 
@@ -251,6 +316,53 @@ fn build_record_batch(
         .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
 }
 
+fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
+    let ruby = Ruby::get().unwrap();
+    let mut documents = Vec::new();
+    
+    let num_rows = batch.num_rows();
+    let schema = batch.schema();
+    
+    for row_idx in 0..num_rows {
+        let doc = ruby.hash_new();
+        
+        for (col_idx, field) in schema.fields().iter().enumerate() {
+            let column = batch.column(col_idx);
+            let key = Symbol::new(field.name());
+            
+            match field.data_type() {
+                DataType::Utf8 => {
+                    let array = column.as_any().downcast_ref::<StringArray>()
+                        .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast to StringArray"))?;
+                    
+                    if array.is_null(row_idx) {
+                        doc.aset(key, ruby.qnil())?;
+                    } else {
+                        doc.aset(key, array.value(row_idx))?;
+                    }
+                }
+                DataType::Float32 => {
+                    let array = column.as_any().downcast_ref::<Float32Array>()
+                        .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast to Float32Array"))?;
+                    
+                    if array.is_null(row_idx) {
+                        doc.aset(key, ruby.qnil())?;
+                    } else {
+                        doc.aset(key, array.value(row_idx))?;
+                    }
+                }
+                _ => {
+                    // Skip unsupported types for now
+                }
+            }
+        }
+        
+        documents.push(doc);
+    }
+    
+    Ok(documents)
+}
+
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
     let module = define_module("Lancelot")?;
@@ -263,6 +375,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     dataset_class.define_method("add_data", method!(LancelotDataset::add_data, 1))?;
     dataset_class.define_method("count_rows", method!(LancelotDataset::count_rows, 0))?;
     dataset_class.define_method("schema", method!(LancelotDataset::schema, 0))?;
+    dataset_class.define_method("scan_all", method!(LancelotDataset::scan_all, 0))?;
+    dataset_class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
     
     Ok(())
 }

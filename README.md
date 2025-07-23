@@ -7,6 +7,7 @@ Ruby bindings for [Lance](https://github.com/lancedb/lance), a modern columnar d
 ### Implemented
 - **Dataset Creation**: Create Lance datasets with schemas
 - **Data Storage**: Add documents to datasets  
+- **Document Retrieval**: Read documents from datasets with enumerable support
 - **Schema Support**: Define schemas with string and float32 types
 - **Row Counting**: Get the number of rows in a dataset
 
@@ -61,6 +62,16 @@ puts dataset.count  # => 3
 
 # Get the schema
 puts dataset.schema  # => { text: "string", score: "float32" }
+
+# Retrieve documents
+dataset.all           # => Returns all documents
+dataset.first         # => Returns first document
+dataset.first(2)      # => Returns first 2 documents
+
+# Enumerable support
+dataset.each { |doc| puts doc[:text] }
+dataset.map { |doc| doc[:score] }
+dataset.select { |doc| doc[:score] > 0.9 }
 ```
 
 **Current Limitations:**

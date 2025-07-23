@@ -57,6 +57,25 @@ module Lancelot
     alias_method :count, :size
     alias_method :length, :size
 
+    def all
+      scan_all
+    end
+
+    def first(n = nil)
+      if n.nil?
+        scan_limit(1).first
+      else
+        scan_limit(n)
+      end
+    end
+
+    def each(&block)
+      return enum_for(:each) unless block_given?
+      scan_all.each(&block)
+    end
+
+    include Enumerable
+
     private
 
     def normalize_document(doc)

@@ -31,9 +31,22 @@ Dir.mktmpdir do |dir|
   # Get the schema
   puts "Schema: #{dataset.schema.inspect}"
   
+  # Retrieve documents
+  puts "\nRetrieving documents:"
+  puts "First document: #{dataset.first.inspect}"
+  puts "First 2 documents: #{dataset.first(2).map { |d| d[:text] }.join(', ')}"
+  
+  # Use Enumerable methods
+  puts "\nUsing Enumerable methods:"
+  texts = dataset.map { |doc| doc[:text] }
+  puts "All texts: #{texts.join(', ')}"
+  
+  high_scores = dataset.select { |doc| doc[:score] > 0.9 }
+  puts "High scoring documents: #{high_scores.map { |d| d[:text] }.join(', ')}"
+  
   # Open an existing dataset
   dataset2 = Lancelot::Dataset.open(dataset_path)
-  puts "Opened dataset has #{dataset2.count} documents"
+  puts "\nOpened dataset has #{dataset2.count} documents"
 end
 
 puts "Done!"
