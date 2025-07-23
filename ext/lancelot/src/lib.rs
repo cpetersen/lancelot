@@ -9,7 +9,7 @@ use lance::Dataset;
 use arrow_schema::{DataType, Field, Schema as ArrowSchema};
 use arrow_array::{RecordBatch, RecordBatchIterator, StringArray, Float32Array, ArrayRef, Array};
 use std::collections::HashMap;
-use futures::stream::{StreamExt, TryStreamExt};
+use futures::stream::TryStreamExt;
 
 #[magnus::wrap(class = "Lancelot::Dataset", free_immediately, size)]
 struct LancelotDataset {
@@ -134,7 +134,7 @@ impl LancelotDataset {
             .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
 
         let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
-            let mut scanner = dataset.scan();
+            let scanner = dataset.scan();
             let stream = scanner
                 .try_into_stream()
                 .await
@@ -166,7 +166,8 @@ impl LancelotDataset {
 
         let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
             let mut scanner = dataset.scan();
-            scanner.limit(Some(limit), None);
+            scanner.limit(Some(limit), None)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
             
             let stream = scanner
                 .try_into_stream()
