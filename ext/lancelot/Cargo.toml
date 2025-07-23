@@ -1,0 +1,19 @@
+[package]
+name = "lancelot"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+magnus = { version = "0.7", features = ["rb-sys"] }
+# lance = { version = "0.17", default-features = false }
+# tokio = { version = "1", features = ["full"] }
+# arrow = "52"
+# arrow-array = "52"
+# arrow-schema = "52"
+# futures = "0.3"
+thiserror = "1"
+
+[dev-dependencies]
