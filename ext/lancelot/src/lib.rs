@@ -6,8 +6,10 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use lance::Dataset;
+use lance::index::vector::VectorIndexParams;
+use lance_index::{IndexType, DatasetIndexExt};
 use arrow_schema::{DataType, Field, Schema as ArrowSchema};
-use arrow_array::{RecordBatch, RecordBatchIterator, StringArray, Float32Array, ArrayRef, Array};
+use arrow_array::{RecordBatch, RecordBatchIterator, StringArray, Float32Array, ArrayRef, Array, FixedSizeListArray};
 use std::collections::HashMap;
 use futures::stream::TryStreamExt;
 
@@ -74,12 +76,63 @@ impl LancelotDataset {
         let dataset = dataset.as_mut()
             .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
 
-        // TODO: Use actual dataset schema once we figure out Lance 0.31 API
-        // For now, we'll use a simplified schema
-        let arrow_schema = ArrowSchema::new(vec![
-            Field::new("text", DataType::Utf8, true),
-            Field::new("score", DataType::Float32, true),
-        ]);
+        // Check if data is empty
+        if data.len() == 0 {
+            return Ok(());  // Nothing to add
+        }
+
+        // For now, we'll build a schema based on the first record
+        // TODO: Get actual schema from dataset once we figure out Lance 0.31 API
+        let first_item = data.entry(0)?;
+        let first_hash = RHash::try_convert(first_item)?;
+        let mut fields = vec![];
+        
+        // Build schema based on what's actually in the data
+        // TODO: Get actual schema from dataset once we figure out Lance 0.31 API
+        
+        // Check for text field
+        if first_hash.get(Symbol::new("text")).is_some() || first_hash.get("text").is_some() {
+            fields.push(Field::new("text", DataType::Utf8, true));
+        }
+        
+        // Check for score field
+        if first_hash.get(Symbol::new("score")).is_some() || first_hash.get("score").is_some() {
+            fields.push(Field::new("score", DataType::Float32, true));
+        }
+        
+        // Check for vector field
+        if let Some(vector_val) = first_hash.get(Symbol::new("vector"))
+            .or_else(|| first_hash.get("vector")) {
+            if let Ok(arr) = RArray::try_convert(vector_val) {
+                let dim = arr.len() as i32;
+                fields.push(Field::new("vector", DataType::FixedSizeList(
+                    Arc::new(Field::new("item", DataType::Float32, true)),
+                    dim
+                ), true));
+            }
+        }
+        
+        // Check for embedding field (alias for vector)
+        if let Some(embedding_val) = first_hash.get(Symbol::new("embedding"))
+            .or_else(|| first_hash.get("embedding")) {
+            if let Ok(arr) = RArray::try_convert(embedding_val) {
+                let dim = arr.len() as i32;
+                fields.push(Field::new("embedding", DataType::FixedSizeList(
+                    Arc::new(Field::new("item", DataType::Float32, true)),
+                    dim
+                ), true));
+            }
+        }
+        
+        // Make sure we have at least one field
+        if fields.is_empty() {
+            return Err(Error::new(
+                magnus::exception::arg_error(),
+                "No fields found in data. Ensure documents have at least one non-nil field"
+            ));
+        }
+        
+        let arrow_schema = ArrowSchema::new(fields);
 
         let batch = build_record_batch(data, &arrow_schema)?;
 
@@ -192,6 +245,80 @@ impl LancelotDataset {
 
         Ok(result_array)
     }
+
+    fn create_vector_index(&self, column: String) -> Result<(), Error> {
+        let mut dataset = self.dataset.borrow_mut();
+        let dataset = dataset.as_mut()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        self.runtime.borrow_mut().block_on(async move {
+            // Get row count to determine optimal number of partitions
+            let num_rows = dataset.count_rows(None).await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            // Use fewer partitions for small datasets
+            let num_partitions = if num_rows < 256 {
+                std::cmp::max(1, (num_rows / 4) as usize)
+            } else {
+                256
+            };
+            
+            // Create IVF_FLAT vector index parameters
+            let params = VectorIndexParams::ivf_flat(num_partitions, lance_linalg::distance::MetricType::L2);
+            
+            dataset.create_index(
+                &[&column],
+                IndexType::Vector,
+                None,
+                &params,
+                true
+            )
+            .await
+            .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })
+    }
+
+    fn vector_search(&self, column: String, query_vector: RArray, limit: i64) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        // Convert Ruby array to Vec<f32>
+        let vector: Vec<f32> = query_vector
+            .into_iter()
+            .map(|v| f64::try_convert(v).map(|f| f as f32))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            
+            // Use nearest for vector search
+            scanner.nearest(&column, &Float32Array::from(vector), limit as usize)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
+    }
 }
 
 fn build_arrow_schema(schema_hash: RHash) -> Result<ArrowSchema, Error> {
@@ -247,6 +374,9 @@ fn build_record_batch(
 ) -> Result<RecordBatch, Error> {
     let mut columns: HashMap<String, Vec<Option<String>>> = HashMap::new();
     let mut float_columns: HashMap<String, Vec<Option<f32>>> = HashMap::new();
+    let mut int_columns: HashMap<String, Vec<Option<i64>>> = HashMap::new();
+    let mut bool_columns: HashMap<String, Vec<Option<bool>>> = HashMap::new();
+    let mut vector_columns: HashMap<String, Vec<Option<Vec<f32>>>> = HashMap::new();
     
     for field in schema.fields() {
         match field.data_type() {
@@ -255,6 +385,15 @@ fn build_record_batch(
             }
             DataType::Float32 => {
                 float_columns.insert(field.name().to_string(), Vec::new());
+            }
+            DataType::Int64 => {
+                int_columns.insert(field.name().to_string(), Vec::new());
+            }
+            DataType::Boolean => {
+                bool_columns.insert(field.name().to_string(), Vec::new());
+            }
+            DataType::FixedSizeList(_, _) => {
+                vector_columns.insert(field.name().to_string(), Vec::new());
             }
             _ => {}
         }
@@ -287,6 +426,33 @@ fn build_record_batch(
                         float_columns.get_mut(field.name()).unwrap().push(Some(f as f32));
                     }
                 }
+                DataType::Int64 => {
+                    if value.is_nil() {
+                        int_columns.get_mut(field.name()).unwrap().push(None);
+                    } else {
+                        let i = i64::try_convert(value)?;
+                        int_columns.get_mut(field.name()).unwrap().push(Some(i));
+                    }
+                }
+                DataType::Boolean => {
+                    if value.is_nil() {
+                        bool_columns.get_mut(field.name()).unwrap().push(None);
+                    } else {
+                        let b = bool::try_convert(value)?;
+                        bool_columns.get_mut(field.name()).unwrap().push(Some(b));
+                    }
+                }
+                DataType::FixedSizeList(_, _) => {
+                    if value.is_nil() {
+                        vector_columns.get_mut(field.name()).unwrap().push(None);
+                    } else {
+                        let arr = RArray::try_convert(value)?;
+                        let vec: Vec<f32> = arr.into_iter()
+                            .map(|v| f64::try_convert(v).map(|f| f as f32))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        vector_columns.get_mut(field.name()).unwrap().push(Some(vec));
+                    }
+                }
                 _ => {}
             }
         }
@@ -303,6 +469,44 @@ fn build_record_batch(
             DataType::Float32 => {
                 let values = float_columns.get(field.name()).unwrap();
                 Arc::new(Float32Array::from(values.clone()))
+            }
+            DataType::Int64 => {
+                let values = int_columns.get(field.name()).unwrap();
+                Arc::new(arrow_array::Int64Array::from(values.clone()))
+            }
+            DataType::Boolean => {
+                let values = bool_columns.get(field.name()).unwrap();
+                Arc::new(arrow_array::BooleanArray::from(values.clone()))
+            }
+            DataType::FixedSizeList(inner_field, list_size) => {
+                let values = vector_columns.get(field.name()).unwrap();
+                // Build flat array of all values
+                let mut flat_values = Vec::new();
+                for vec_opt in values {
+                    match vec_opt {
+                        Some(vec) => {
+                            if vec.len() != *list_size as usize {
+                                return Err(Error::new(
+                                    magnus::exception::arg_error(),
+                                    format!("Vector dimension mismatch. Expected {}, got {}", list_size, vec.len())
+                                ));
+                            }
+                            flat_values.extend(vec);
+                        }
+                        None => {
+                            // Add nulls for the entire vector
+                            flat_values.extend(vec![0.0f32; *list_size as usize]);
+                        }
+                    }
+                }
+                
+                let flat_array = Float32Array::from(flat_values);
+                Arc::new(FixedSizeListArray::new(
+                    inner_field.clone(),
+                    *list_size,
+                    Arc::new(flat_array),
+                    None
+                ))
             }
             _ => return Err(Error::new(
                 magnus::exception::runtime_error(),
@@ -352,6 +556,44 @@ fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
                         doc.aset(key, array.value(row_idx))?;
                     }
                 }
+                DataType::Int64 => {
+                    let array = column.as_any().downcast_ref::<arrow_array::Int64Array>()
+                        .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast to Int64Array"))?;
+                    
+                    if array.is_null(row_idx) {
+                        doc.aset(key, ruby.qnil())?;
+                    } else {
+                        doc.aset(key, array.value(row_idx))?;
+                    }
+                }
+                DataType::Boolean => {
+                    let array = column.as_any().downcast_ref::<arrow_array::BooleanArray>()
+                        .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast to BooleanArray"))?;
+                    
+                    if array.is_null(row_idx) {
+                        doc.aset(key, ruby.qnil())?;
+                    } else {
+                        doc.aset(key, array.value(row_idx))?;
+                    }
+                }
+                DataType::FixedSizeList(_, list_size) => {
+                    let array = column.as_any().downcast_ref::<FixedSizeListArray>()
+                        .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast to FixedSizeListArray"))?;
+                    
+                    if array.is_null(row_idx) {
+                        doc.aset(key, ruby.qnil())?;
+                    } else {
+                        let values = array.value(row_idx);
+                        let float_array = values.as_any().downcast_ref::<Float32Array>()
+                            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast vector values to Float32Array"))?;
+                        
+                        let ruby_array = ruby.ary_new();
+                        for i in 0..*list_size {
+                            ruby_array.push(float_array.value(i as usize))?;
+                        }
+                        doc.aset(key, ruby_array)?;
+                    }
+                }
                 _ => {
                     // Skip unsupported types for now
                 }
@@ -378,6 +620,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     dataset_class.define_method("schema", method!(LancelotDataset::schema, 0))?;
     dataset_class.define_method("scan_all", method!(LancelotDataset::scan_all, 0))?;
     dataset_class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
+    dataset_class.define_method("create_vector_index", method!(LancelotDataset::create_vector_index, 1))?;
+    dataset_class.define_method("vector_search", method!(LancelotDataset::vector_search, 3))?;
     
     Ok(())
 }

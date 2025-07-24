@@ -76,6 +76,22 @@ module Lancelot
 
     include Enumerable
 
+    def create_index(column: "vector", **options)
+      create_vector_index(column.to_s)
+    end
+
+    def search(query_vector, column: "vector", limit: 10)
+      unless query_vector.is_a?(Array)
+        raise ArgumentError, "Query vector must be an array of numbers"
+      end
+      
+      vector_search(column.to_s, query_vector, limit)
+    end
+
+    def nearest_neighbors(vector, k: 10, column: "vector")
+      search(vector, column: column, limit: k)
+    end
+
     private
 
     def normalize_document(doc)

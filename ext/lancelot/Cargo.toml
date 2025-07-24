@@ -9,6 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 magnus = { version = "0.7", features = ["rb-sys"] }
 lance = { version = "0.31", default-features = false }
+lance-index = "0.31"
+lance-linalg = "0.31"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 arrow = "55"
 arrow-array = "55"

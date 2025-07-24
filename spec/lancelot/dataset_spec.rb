@@ -183,4 +183,67 @@ RSpec.describe Lancelot::Dataset do
       end
     end
   end
+
+  describe "vector search" do
+    let(:dataset) do
+      schema = { 
+        text: :string, 
+        score: :float32,
+        vector: { type: "vector", dimension: 3 }
+      }
+      Lancelot::Dataset.create(dataset_path, schema: schema)
+    end
+
+    before do
+      dataset.add_documents([
+        { text: "Ruby programming", score: 0.9, vector: [0.1, 0.2, 0.3] },
+        { text: "Python coding", score: 0.85, vector: [0.2, 0.3, 0.4] },
+        { text: "JavaScript development", score: 0.8, vector: [0.8, 0.9, 0.7] }
+      ])
+    end
+
+    describe "#create_index" do
+      it "creates a vector index" do
+        expect { dataset.create_index(column: "vector") }.not_to raise_error
+      end
+    end
+
+    describe "#search" do
+      before do
+        dataset.create_index(column: "vector")
+      end
+
+      it "finds nearest neighbors" do
+        query_vector = [0.15, 0.25, 0.35]
+        results = dataset.search(query_vector, limit: 2)
+        
+        expect(results).to be_an(Array)
+        expect(results.length).to eq(2)
+        # The first two documents should be the closest
+        texts = results.map { |doc| doc[:text] }
+        expect(texts).to include("Ruby programming", "Python coding")
+      end
+
+      it "respects the limit parameter" do
+        query_vector = [0.5, 0.5, 0.5]
+        results = dataset.search(query_vector, limit: 1)
+        
+        expect(results.length).to eq(1)
+      end
+    end
+
+    describe "#nearest_neighbors" do
+      before do
+        dataset.create_index(column: "vector")
+      end
+
+      it "is an alias for search" do
+        query_vector = [0.1, 0.2, 0.3]
+        results = dataset.nearest_neighbors(query_vector, k: 2)
+        
+        expect(results).to be_an(Array)
+        expect(results.length).to eq(2)
+      end
+    end
+  end
 end
