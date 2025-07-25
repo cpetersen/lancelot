@@ -5,6 +5,7 @@ use tokio::runtime::Runtime;
 use lance::Dataset;
 use lance::index::vector::VectorIndexParams;
 use lance_index::{IndexType, DatasetIndexExt};
+use lance_index::scalar::{InvertedIndexParams, FullTextSearchQuery};
 use arrow_array::{RecordBatch, RecordBatchIterator, Float32Array};
 use futures::stream::TryStreamExt;
 
@@ -273,6 +274,27 @@ impl LancelotDataset {
         Ok(result_array)
     }
 
+    pub fn create_text_index(&self, column: String) -> Result<(), Error> {
+        let mut dataset = self.dataset.borrow_mut();
+        let dataset = dataset.as_mut()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        self.runtime.borrow_mut().block_on(async move {
+            // Create inverted index for full-text search
+            let params = InvertedIndexParams::default();
+            
+            dataset.create_index(
+                &[&column],
+                IndexType::Inverted,
+                None,
+                &params,
+                true
+            )
+            .await
+            .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })
+    }
+
     pub fn text_search(&self, column: String, query: String, limit: i64) -> Result<RArray, Error> {
         let dataset = self.dataset.borrow();
         let dataset = dataset.as_ref()
@@ -281,9 +303,62 @@ impl LancelotDataset {
         let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
             let mut scanner = dataset.scan();
             
-            // Use SQL LIKE for pattern matching
-            let filter = format!("{} LIKE '%{}%'", column, query);
-            scanner.filter(&filter)
+            // Use full-text search with inverted index
+            let fts_query = FullTextSearchQuery::new(query)
+                .with_column(column)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            scanner.full_text_search(fts_query)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            // Apply limit
+            scanner.limit(Some(limit), None)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
+    }
+
+    pub fn multi_column_text_search(&self, columns: RArray, query: String, limit: i64) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        // Convert Ruby array of columns to Vec<String>
+        let columns: Vec<String> = columns
+            .into_iter()
+            .map(|v| String::try_convert(v))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            
+            // Create a full-text search query for multiple columns
+            let fts_query = FullTextSearchQuery::new(query)
+                .with_columns(&columns)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            scanner.full_text_search(fts_query)
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
             
             // Apply limit
@@ -369,8 +444,10 @@ impl LancelotDataset {
         class.define_method("scan_all", method!(LancelotDataset::scan_all, 0))?;
         class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
         class.define_method("create_vector_index", method!(LancelotDataset::create_vector_index, 1))?;
+        class.define_method("create_text_index", method!(LancelotDataset::create_text_index, 1))?;
         class.define_method("_rust_vector_search", method!(LancelotDataset::vector_search, 3))?;
         class.define_method("_rust_text_search", method!(LancelotDataset::text_search, 3))?;
+        class.define_method("_rust_multi_column_text_search", method!(LancelotDataset::multi_column_text_search, 3))?;
         class.define_method("filter_scan", method!(LancelotDataset::filter_scan, 2))?;
         Ok(())
     }

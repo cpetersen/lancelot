@@ -80,13 +80,46 @@ results = dataset.vector_search([0.15, 0.25, ...], column: "embedding", limit: 5
 # Or use the nearest_neighbors alias
 similar = dataset.nearest_neighbors([0.1, 0.2, ...], k: 10, column: "embedding")
 
-# Text search
-results = dataset.text_search("programming", column: "text", limit: 10)
+# Full-text search with inverted indices
+# First create text indices on the columns you want to search
+dataset.create_text_index("title")
+dataset.create_text_index("content")
+dataset.create_text_index("tags")
 
-# SQL-like filtering
+# Single column search
+results = dataset.text_search("ruby programming", column: "content", limit: 10)
+
+# Multi-column search
+results = dataset.text_search("machine learning", columns: ["title", "content"], limit: 10)
+
+# SQL-like filtering (uses Lance's SQL engine, not full-text indices)
 results = dataset.where("score > 0.9")
-results = dataset.where("text LIKE '%Ruby%' AND score > 0.8", limit: 5)
+results = dataset.where("category = 'tutorial' AND year >= 2023", limit: 5)
 ```
+
+### Full-Text Search
+
+Lancelot supports Lance's full-text search capabilities with inverted indices:
+
+```ruby
+# Create indices before searching
+dataset.create_text_index("title")
+dataset.create_text_index("content")
+
+# Search a single column
+results = dataset.text_search("ruby", column: "title")
+
+# Search multiple columns (returns union of results)
+results = dataset.text_search("programming", columns: ["title", "content", "tags"])
+
+# The underlying Lance engine provides:
+# - BM25 scoring for relevance ranking
+# - Tokenization with language support
+# - Case-insensitive search
+# - Multi-word queries
+```
+
+**Note**: Full-text search requires creating inverted indices first. For simple pattern matching without indices, use SQL-like filtering with `where`.
 
 **Current Limitations:**
 - Schema must be defined when creating a dataset

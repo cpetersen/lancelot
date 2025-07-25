@@ -88,13 +88,22 @@ module Lancelot
       vector_search(vector, column: column, limit: k)
     end
 
-    def text_search(query, column: "text", limit: 10)
+    def text_search(query, column: nil, columns: nil, limit: 10)
       unless query.is_a?(String)
         raise ArgumentError, "Query must be a string"
       end
       
-      # Call the underlying Rust method with parameters in correct order
-      _rust_text_search(column.to_s, query, limit)
+      if column && columns
+        raise ArgumentError, "Cannot specify both column and columns"
+      elsif columns
+        # Multi-column search
+        columns = Array(columns).map(&:to_s)
+        _rust_multi_column_text_search(columns, query, limit)
+      else
+        # Single column search (default to "text" if not specified)
+        column ||= "text"
+        _rust_text_search(column.to_s, query, limit)
+      end
     end
 
     def where(filter_expression, limit: nil)
