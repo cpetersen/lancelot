@@ -92,6 +92,23 @@ module Lancelot
       search(vector, column: column, limit: k)
     end
 
+    # The Ruby wrapper reorders parameters for a nicer API
+    # but we need to preserve the Rust method as is
+    alias_method :_rust_text_search, :text_search if instance_methods.include?(:text_search)
+    
+    def text_search(query, column: "text", limit: 10)
+      unless query.is_a?(String)
+        raise ArgumentError, "Query must be a string"
+      end
+      
+      # Call the underlying Rust method with parameters in correct order
+      _rust_text_search(column.to_s, query, limit)
+    end
+
+    def where(filter_expression, limit: nil)
+      filter_scan(filter_expression.to_s, limit)
+    end
+
     private
 
     def normalize_document(doc)

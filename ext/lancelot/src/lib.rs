@@ -81,58 +81,13 @@ impl LancelotDataset {
             return Ok(());  // Nothing to add
         }
 
-        // For now, we'll build a schema based on the first record
-        // TODO: Get actual schema from dataset once we figure out Lance 0.31 API
-        let first_item = data.entry(0)?;
-        let first_hash = RHash::try_convert(first_item)?;
-        let mut fields = vec![];
+        // Get the dataset's schema
+        let schema = self.runtime.borrow_mut().block_on(async {
+            dataset.schema()
+        });
         
-        // Build schema based on what's actually in the data
-        // TODO: Get actual schema from dataset once we figure out Lance 0.31 API
-        
-        // Check for text field
-        if first_hash.get(Symbol::new("text")).is_some() || first_hash.get("text").is_some() {
-            fields.push(Field::new("text", DataType::Utf8, true));
-        }
-        
-        // Check for score field
-        if first_hash.get(Symbol::new("score")).is_some() || first_hash.get("score").is_some() {
-            fields.push(Field::new("score", DataType::Float32, true));
-        }
-        
-        // Check for vector field
-        if let Some(vector_val) = first_hash.get(Symbol::new("vector"))
-            .or_else(|| first_hash.get("vector")) {
-            if let Ok(arr) = RArray::try_convert(vector_val) {
-                let dim = arr.len() as i32;
-                fields.push(Field::new("vector", DataType::FixedSizeList(
-                    Arc::new(Field::new("item", DataType::Float32, true)),
-                    dim
-                ), true));
-            }
-        }
-        
-        // Check for embedding field (alias for vector)
-        if let Some(embedding_val) = first_hash.get(Symbol::new("embedding"))
-            .or_else(|| first_hash.get("embedding")) {
-            if let Ok(arr) = RArray::try_convert(embedding_val) {
-                let dim = arr.len() as i32;
-                fields.push(Field::new("embedding", DataType::FixedSizeList(
-                    Arc::new(Field::new("item", DataType::Float32, true)),
-                    dim
-                ), true));
-            }
-        }
-        
-        // Make sure we have at least one field
-        if fields.is_empty() {
-            return Err(Error::new(
-                magnus::exception::arg_error(),
-                "No fields found in data. Ensure documents have at least one non-nil field"
-            ));
-        }
-        
-        let arrow_schema = ArrowSchema::new(fields);
+        // Convert Lance schema to Arrow schema
+        let arrow_schema = schema.into();
 
         let batch = build_record_batch(data, &arrow_schema)?;
 
@@ -295,6 +250,89 @@ impl LancelotDataset {
             // Use nearest for vector search
             scanner.nearest(&column, &Float32Array::from(vector), limit as usize)
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
+    }
+
+    fn text_search(&self, column: String, query: String, limit: i64) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            
+            // Use SQL LIKE for pattern matching
+            let filter = format!("{} LIKE '%{}%'", column, query);
+            scanner.filter(&filter)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            // Apply limit
+            scanner.limit(Some(limit), None)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            let stream = scanner
+                .try_into_stream()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
+        })?;
+
+        let ruby = Ruby::get().unwrap();
+        let result_array = ruby.ary_new();
+
+        for batch in batches {
+            let documents = convert_batch_to_ruby(&batch)?;
+            for doc in documents {
+                result_array.push(doc)?;
+            }
+        }
+
+        Ok(result_array)
+    }
+
+    fn filter_scan(&self, filter_expr: String, limit: Option<i64>) -> Result<RArray, Error> {
+        let dataset = self.dataset.borrow();
+        let dataset = dataset.as_ref()
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        let batches: Vec<RecordBatch> = self.runtime.borrow_mut().block_on(async {
+            let mut scanner = dataset.scan();
+            
+            // Apply SQL-like filter
+            scanner.filter(&filter_expr)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            
+            // Apply limit if provided
+            if let Some(lim) = limit {
+                scanner.limit(Some(lim), None)
+                    .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
+            }
             
             let stream = scanner
                 .try_into_stream()
@@ -622,6 +660,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     dataset_class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
     dataset_class.define_method("create_vector_index", method!(LancelotDataset::create_vector_index, 1))?;
     dataset_class.define_method("vector_search", method!(LancelotDataset::vector_search, 3))?;
+    dataset_class.define_method("text_search", method!(LancelotDataset::text_search, 3))?;
+    dataset_class.define_method("filter_scan", method!(LancelotDataset::filter_scan, 2))?;
     
     Ok(())
 }
