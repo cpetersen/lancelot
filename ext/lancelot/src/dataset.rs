@@ -1,4 +1,4 @@
-use magnus::{Error, Ruby, RHash, RArray, Symbol, TryConvert};
+use magnus::{Error, Ruby, RHash, RArray, Symbol, TryConvert, function, method, RClass, Module, Object};
 use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -354,5 +354,24 @@ impl LancelotDataset {
         }
 
         Ok(result_array)
+    }
+}
+
+impl LancelotDataset {
+    pub fn bind(class: &RClass) -> Result<(), Error> {
+        class.define_singleton_method("new", function!(LancelotDataset::new, 1))?;
+        class.define_method("path", method!(LancelotDataset::path, 0))?;
+        class.define_method("create", method!(LancelotDataset::create, 1))?;
+        class.define_method("open", method!(LancelotDataset::open, 0))?;
+        class.define_method("add_data", method!(LancelotDataset::add_data, 1))?;
+        class.define_method("count_rows", method!(LancelotDataset::count_rows, 0))?;
+        class.define_method("schema", method!(LancelotDataset::schema, 0))?;
+        class.define_method("scan_all", method!(LancelotDataset::scan_all, 0))?;
+        class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
+        class.define_method("create_vector_index", method!(LancelotDataset::create_vector_index, 1))?;
+        class.define_method("vector_search", method!(LancelotDataset::vector_search, 3))?;
+        class.define_method("text_search", method!(LancelotDataset::text_search, 3))?;
+        class.define_method("filter_scan", method!(LancelotDataset::filter_scan, 2))?;
+        Ok(())
     }
 }
