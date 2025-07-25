@@ -202,20 +202,20 @@ RSpec.describe Lancelot::Dataset do
       ])
     end
 
-    describe "#create_index" do
+    describe "#create_vector_index" do
       it "creates a vector index" do
-        expect { dataset.create_index(column: "vector") }.not_to raise_error
+        expect { dataset.create_vector_index("vector") }.not_to raise_error
       end
     end
 
-    describe "#search" do
+    describe "#vector_search" do
       before do
-        dataset.create_index(column: "vector")
+        dataset.create_vector_index("vector")
       end
 
       it "finds nearest neighbors" do
         query_vector = [0.15, 0.25, 0.35]
-        results = dataset.search(query_vector, limit: 2)
+        results = dataset.vector_search(query_vector, column: "vector", limit: 2)
         
         expect(results).to be_an(Array)
         expect(results.length).to eq(2)
@@ -226,22 +226,139 @@ RSpec.describe Lancelot::Dataset do
 
       it "respects the limit parameter" do
         query_vector = [0.5, 0.5, 0.5]
-        results = dataset.search(query_vector, limit: 1)
+        results = dataset.vector_search(query_vector, column: "vector", limit: 1)
         
         expect(results.length).to eq(1)
+      end
+
+      it "raises error for non-array query" do
+        expect {
+          dataset.vector_search("not an array", column: "vector")
+        }.to raise_error(ArgumentError, /must be an array/)
       end
     end
 
     describe "#nearest_neighbors" do
       before do
-        dataset.create_index(column: "vector")
+        dataset.create_vector_index("vector")
       end
 
-      it "is an alias for search" do
+      it "calls vector_search with k parameter" do
         query_vector = [0.1, 0.2, 0.3]
-        results = dataset.nearest_neighbors(query_vector, k: 2)
+        results = dataset.nearest_neighbors(query_vector, k: 2, column: "vector")
         
         expect(results).to be_an(Array)
+        expect(results.length).to eq(2)
+      end
+    end
+  end
+
+  describe "text search" do
+    let(:dataset) do
+      schema = { 
+        title: :string,
+        content: :string,
+        category: :string,
+        year: :int64
+      }
+      Lancelot::Dataset.create(dataset_path, schema: schema)
+    end
+
+    before do
+      dataset.add_documents([
+        { title: "Ruby on Rails", content: "Web framework for Ruby", category: "web", year: 2023 },
+        { title: "Django Python", content: "Web framework for Python", category: "web", year: 2024 },
+        { title: "Ruby Gems", content: "Package manager for Ruby", category: "tools", year: 2023 },
+        { title: "Python Packages", content: "PyPI is the Python package index", category: "tools", year: 2024 }
+      ])
+    end
+
+    describe "#create_text_index" do
+      it "creates a text index on a column" do
+        expect { dataset.create_text_index("title") }.not_to raise_error
+        expect { dataset.create_text_index("content") }.not_to raise_error
+      end
+    end
+
+    describe "#text_search" do
+      context "with text indices" do
+        before do
+          dataset.create_text_index("title")
+          dataset.create_text_index("content")
+          dataset.create_text_index("category")
+        end
+
+        it "searches a single column" do
+          results = dataset.text_search("ruby", column: "title")
+          expect(results).to be_an(Array)
+          expect(results.length).to eq(2)
+          titles = results.map { |doc| doc[:title] }
+          expect(titles).to include("Ruby on Rails", "Ruby Gems")
+        end
+
+        it "searches with default column" do
+          # Default is "text" column which doesn't exist
+          # This will raise an error because the column doesn't exist
+          expect {
+            dataset.text_search("ruby")
+          }.to raise_error(RuntimeError, /Column text not found/)
+        end
+
+        it "searches multiple columns" do
+          results = dataset.text_search("framework", columns: ["title", "content"])
+          expect(results.length).to be >= 2
+        end
+
+        it "is case insensitive" do
+          results = dataset.text_search("RUBY", column: "title")
+          expect(results.length).to eq(2)
+        end
+
+        it "handles multi-word queries" do
+          results = dataset.text_search("package manager", column: "content")
+          expect(results.length).to be >= 1
+          expect(results.first[:title]).to eq("Ruby Gems")
+        end
+
+        it "raises error for non-string query" do
+          expect {
+            dataset.text_search(123, column: "title")
+          }.to raise_error(ArgumentError, /must be a string/)
+        end
+
+        it "raises error when both column and columns specified" do
+          expect {
+            dataset.text_search("ruby", column: "title", columns: ["content"])
+          }.to raise_error(ArgumentError, /Cannot specify both/)
+        end
+      end
+    end
+
+    describe "#where" do
+      it "filters with simple conditions" do
+        results = dataset.where("year = 2023")
+        expect(results.length).to eq(2)
+        expect(results.map { |doc| doc[:title] }).to include("Ruby on Rails", "Ruby Gems")
+      end
+
+      it "filters with compound conditions" do
+        results = dataset.where("category = 'web' AND year = 2024")
+        expect(results.length).to eq(1)
+        expect(results.first[:title]).to eq("Django Python")
+      end
+
+      it "filters with LIKE patterns" do
+        results = dataset.where("title LIKE '%Python%'")
+        expect(results.length).to eq(2)
+      end
+
+      it "supports limit parameter" do
+        results = dataset.where("category = 'web'", limit: 1)
+        expect(results.length).to eq(1)
+      end
+
+      it "handles OR conditions" do
+        results = dataset.where("title LIKE '%Rails%' OR title LIKE '%Django%'")
         expect(results.length).to eq(2)
       end
     end
