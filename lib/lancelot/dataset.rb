@@ -76,26 +76,18 @@ module Lancelot
 
     include Enumerable
 
-    def create_index(column: "vector", **options)
-      create_vector_index(column.to_s)
-    end
-
-    def search(query_vector, column: "vector", limit: 10)
+    def vector_search(query_vector, column: "vector", limit: 10)
       unless query_vector.is_a?(Array)
         raise ArgumentError, "Query vector must be an array of numbers"
       end
       
-      vector_search(column.to_s, query_vector, limit)
+      _rust_vector_search(column.to_s, query_vector, limit)
     end
 
     def nearest_neighbors(vector, k: 10, column: "vector")
-      search(vector, column: column, limit: k)
+      vector_search(vector, column: column, limit: k)
     end
 
-    # The Ruby wrapper reorders parameters for a nicer API
-    # but we need to preserve the Rust method as is
-    alias_method :_rust_text_search, :text_search if instance_methods.include?(:text_search)
-    
     def text_search(query, column: "text", limit: 10)
       unless query.is_a?(String)
         raise ArgumentError, "Query must be a string"

@@ -74,17 +74,24 @@ dataset.map { |doc| doc[:score] }
 dataset.select { |doc| doc[:score] > 0.9 }
 
 # Vector search
-dataset.create_index(column: "embedding")  # Create vector index
-results = dataset.search([0.15, 0.25, ...], limit: 5)  # Find 5 nearest neighbors
+dataset.create_vector_index("embedding")  # Create vector index
+results = dataset.vector_search([0.15, 0.25, ...], column: "embedding", limit: 5)  # Find 5 nearest neighbors
 
 # Or use the nearest_neighbors alias
-similar = dataset.nearest_neighbors([0.1, 0.2, ...], k: 10)
+similar = dataset.nearest_neighbors([0.1, 0.2, ...], k: 10, column: "embedding")
+
+# Text search
+results = dataset.text_search("programming", column: "text", limit: 10)
+
+# SQL-like filtering
+results = dataset.where("score > 0.9")
+results = dataset.where("text LIKE '%Ruby%' AND score > 0.8", limit: 5)
 ```
 
 **Current Limitations:**
 - Schema must be defined when creating a dataset
 - Schema evolution is not yet implemented (Lance supports it, but our bindings don't expose it yet)
-- Full-text search is not yet implemented (Lance has limited support in Rust API)
+- Hybrid search (RRF) is not yet implemented
 - Supported field types: string, float32, float64, int32, int64, boolean, and fixed-size vectors
 
 **Note on Lance's Schema Flexibility:**

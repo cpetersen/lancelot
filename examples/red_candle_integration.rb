@@ -51,7 +51,7 @@ Dir.mktmpdir do |dir|
   
   # Create vector index
   puts "\nCreating vector index..."
-  dataset.create_index(column: "embedding")
+  dataset.create_vector_index("embedding")
   
   # Perform vector search
   query = "Which languages are good for systems programming?"
@@ -62,7 +62,7 @@ Dir.mktmpdir do |dir|
   query_array = query_embedding.squeeze(0).to_a
   
   # Search for similar documents
-  results = dataset.search(query_array, column: "embedding", limit: 3)
+  results = dataset.vector_search(query_array, column: "embedding", limit: 3)
   
   puts "\nTop 3 most similar documents:"
   results.each_with_index do |doc, i|

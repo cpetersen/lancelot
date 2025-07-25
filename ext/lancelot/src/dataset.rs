@@ -369,8 +369,8 @@ impl LancelotDataset {
         class.define_method("scan_all", method!(LancelotDataset::scan_all, 0))?;
         class.define_method("scan_limit", method!(LancelotDataset::scan_limit, 1))?;
         class.define_method("create_vector_index", method!(LancelotDataset::create_vector_index, 1))?;
-        class.define_method("vector_search", method!(LancelotDataset::vector_search, 3))?;
-        class.define_method("text_search", method!(LancelotDataset::text_search, 3))?;
+        class.define_method("_rust_vector_search", method!(LancelotDataset::vector_search, 3))?;
+        class.define_method("_rust_text_search", method!(LancelotDataset::text_search, 3))?;
         class.define_method("filter_scan", method!(LancelotDataset::filter_scan, 2))?;
         Ok(())
     }
