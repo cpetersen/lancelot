@@ -1,5 +1,14 @@
 # frozen_string_literal: true
 
+# SimpleCov must be started before requiring the code to track
+require 'simplecov'
+SimpleCov.start do
+  add_filter '/spec/'
+  add_filter '/ext/'  # Native extensions can't be tracked
+  track_files 'lib/**/*.rb'
+end
+
+
 require "lancelot"
 
 RSpec.configure do |config|

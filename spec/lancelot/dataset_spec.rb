@@ -363,4 +363,114 @@ RSpec.describe Lancelot::Dataset do
       end
     end
   end
+
+  describe "Ruby object methods" do
+    let(:dataset) do
+      schema = { text: :string, score: :float32 }
+      ds = Lancelot::Dataset.create(dataset_path, schema: schema)
+      # Add at least one document so the dataset is properly initialized
+      ds.add_documents([{ text: "test", score: 0.5 }])
+      ds
+    end
+
+    describe "#to_s and #inspect" do
+      it "returns a string representation with path and count" do
+        dataset.add_documents([
+          { text: "First", score: 0.5 },
+          { text: "Second", score: 0.8 }
+        ])
+        
+        expected = "#<Lancelot::Dataset path=\"#{dataset_path}\" count=3>"
+        expect(dataset.to_s).to eq(expected)
+        expect(dataset.inspect).to eq(expected)
+      end
+
+      it "shows count for dataset with initial document" do
+        expected = "#<Lancelot::Dataset path=\"#{dataset_path}\" count=1>"
+        expect(dataset.to_s).to eq(expected)
+      end
+    end
+
+    describe "#== and #eql?" do
+      it "returns true for datasets with the same path" do
+        # Ensure dataset is fully written by calling count
+        expect(dataset.count).to eq(1)
+        
+        dataset2 = Lancelot::Dataset.open(dataset_path)
+        
+        expect(dataset == dataset2).to be true
+        expect(dataset.eql?(dataset2)).to be true
+      end
+
+      it "returns false for datasets with different paths" do
+        other_path = File.join(temp_dir, "other_dataset")
+        other_dataset = Lancelot::Dataset.create(other_path, schema: { text: :string })
+        
+        expect(dataset == other_dataset).to be false
+        expect(dataset.eql?(other_dataset)).to be false
+      end
+
+      it "returns false when comparing with non-dataset objects" do
+        expect(dataset == "not a dataset").to be false
+        expect(dataset == nil).to be false
+        expect(dataset == 123).to be false
+      end
+    end
+
+    describe "#hash" do
+      it "returns the same hash for datasets with the same path" do
+        # Ensure dataset is fully written
+        expect(dataset.count).to eq(1)
+        
+        dataset2 = Lancelot::Dataset.open(dataset_path)
+        
+        expect(dataset.hash).to eq(dataset2.hash)
+      end
+
+      it "returns different hashes for datasets with different paths" do
+        other_path = File.join(temp_dir, "other_dataset")
+        other_dataset = Lancelot::Dataset.create(other_path, schema: { text: :string })
+        
+        expect(dataset.hash).not_to eq(other_dataset.hash)
+      end
+
+      it "can be used as a hash key" do
+        # Ensure dataset is fully written
+        expect(dataset.count).to eq(1)
+        
+        dataset2 = Lancelot::Dataset.open(dataset_path)
+        
+        hash = {}
+        hash[dataset] = "value1"
+        hash[dataset2] = "value2"
+        
+        # Should overwrite since they're the same dataset
+        expect(hash.size).to eq(1)
+        expect(hash[dataset]).to eq("value2")
+        expect(hash[dataset2]).to eq("value2")
+      end
+
+      it "can be used in a Set" do
+        require 'set'
+        
+        # Ensure dataset is fully written
+        expect(dataset.count).to eq(1)
+        
+        dataset2 = Lancelot::Dataset.open(dataset_path)
+        
+        set = Set.new
+        set.add(dataset)
+        set.add(dataset2)
+        
+        # Should only have one element since they're the same dataset
+        expect(set.size).to eq(1)
+      end
+    end
+
+    describe "#path" do
+      it "returns the dataset path" do
+        expect(dataset.path).to eq(dataset_path)
+      end
+    end
+  end
 end

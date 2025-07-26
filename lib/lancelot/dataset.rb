@@ -110,6 +110,20 @@ module Lancelot
       filter_scan(filter_expression.to_s, limit)
     end
 
+    def to_s
+      "#<Lancelot::Dataset path=\"#{path}\" count=#{count}>"
+    end
+    alias inspect to_s
+
+    def ==(other)
+      other.is_a?(Dataset) && other.path == path
+    end
+    alias eql? ==
+
+    def hash
+      path.hash
+    end
+
     private
 
     def normalize_document(doc)
