@@ -72,13 +72,13 @@ Dir.mktmpdir do |dir|
   
   # Create vector index
   puts "\nCreating vector index..."
-  dataset.create_index(column: "vector")
+  dataset.create_vector_index("vector")
   
   # Perform vector search
   puts "\nSearching for documents similar to 'dynamic programming languages'..."
   query_embedding = generate_embedding("dynamic programming languages")
   
-  results = dataset.search(query_embedding, limit: 3)
+  results = dataset.vector_search(query_embedding, column: "vector", limit: 3)
   
   puts "\nTop 3 most similar documents:"
   results.each_with_index do |doc, i|
@@ -90,7 +90,7 @@ Dir.mktmpdir do |dir|
   puts "Searching for documents similar to 'memory safety and performance'..."
   query_embedding2 = generate_embedding("memory safety and performance")
   
-  similar = dataset.nearest_neighbors(query_embedding2, k: 3)
+  similar = dataset.nearest_neighbors(query_embedding2, k: 3, column: "vector")
   
   puts "\nTop 3 nearest neighbors:"
   similar.each_with_index do |doc, i|
