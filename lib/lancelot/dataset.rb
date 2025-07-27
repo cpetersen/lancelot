@@ -106,6 +106,38 @@ module Lancelot
       end
     end
 
+    def hybrid_search(query, vector_column: "vector", text_column: nil, text_columns: nil, 
+                      vector: nil, limit: 10, rrf_k: 60)
+      require 'lancelot/rank_fusion'
+      
+      result_lists = []
+      
+      # Perform vector search if vector is provided
+      if vector
+        unless vector.is_a?(Array)
+          raise ArgumentError, "Vector must be an array of numbers"
+        end
+        
+        vector_results = vector_search(vector, column: vector_column, limit: limit * 2)
+        result_lists << vector_results if vector_results.any?
+      end
+      
+      # Perform text search if query is provided
+      if query && !query.empty?
+        text_results = text_search(query, column: text_column, columns: text_columns, limit: limit * 2)
+        result_lists << text_results if text_results.any?
+      end
+      
+      # Return empty array if no searches were performed
+      return [] if result_lists.empty?
+      
+      # Return single result list if only one search was performed
+      return result_lists.first[0...limit] if result_lists.size == 1
+      
+      # Perform RRF fusion and limit results
+      Lancelot::RankFusion.reciprocal_rank_fusion(result_lists, k: rrf_k)[0...limit]
+    end
+
     def where(filter_expression, limit: nil)
       filter_scan(filter_expression.to_s, limit)
     end

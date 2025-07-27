@@ -473,4 +473,195 @@ RSpec.describe Lancelot::Dataset do
       end
     end
   end
+
+  describe "#hybrid_search" do
+    let(:dataset) do
+      schema = {
+        title: :string,
+        content: :string,
+        embedding: { type: "vector", dimension: 3 }
+      }
+      Lancelot::Dataset.create(dataset_path, schema: schema)
+    end
+
+    before do
+      documents = [
+        { 
+          title: "Ruby on Rails", 
+          content: "A web framework for Ruby",
+          embedding: [0.1, 0.2, 0.3]
+        },
+        { 
+          title: "Python Django", 
+          content: "A web framework for Python",
+          embedding: [0.4, 0.5, 0.6]
+        },
+        { 
+          title: "Ruby Gems", 
+          content: "Package manager for Ruby",
+          embedding: [0.2, 0.3, 0.4]
+        },
+        { 
+          title: "JavaScript Express", 
+          content: "A minimal web framework",
+          embedding: [0.7, 0.8, 0.9]
+        }
+      ]
+      
+      dataset.add_documents(documents)
+      dataset.create_vector_index("embedding")
+      dataset.create_text_index("title")
+      dataset.create_text_index("content")
+    end
+
+    it "combines vector and text search results" do
+      query_vector = [0.15, 0.25, 0.35]
+      results = dataset.hybrid_search(
+        "Ruby",
+        vector: query_vector,
+        vector_column: "embedding",
+        text_column: "title",
+        limit: 3
+      )
+      
+      expect(results).to be_an(Array)
+      expect(results.length).to be <= 3
+      
+      # Results should have RRF scores
+      results.each do |doc|
+        expect(doc).to have_key(:rrf_score)
+        expect(doc[:rrf_score]).to be_a(Float)
+        expect(doc[:rrf_score]).to be > 0
+      end
+      
+      # Should be sorted by RRF score descending
+      scores = results.map { |doc| doc[:rrf_score] }
+      expect(scores).to eq(scores.sort.reverse)
+    end
+
+    it "works with only vector search" do
+      query_vector = [0.1, 0.2, 0.3]
+      results = dataset.hybrid_search(
+        nil,
+        vector: query_vector,
+        vector_column: "embedding",
+        limit: 2
+      )
+      
+      expect(results).to be_an(Array)
+      expect(results.length).to be <= 2
+      # Should not have RRF scores when only one search type
+      expect(results.first).not_to have_key(:rrf_score)
+    end
+
+    it "works with only text search" do
+      results = dataset.hybrid_search(
+        "framework",
+        text_column: "content",
+        limit: 2
+      )
+      
+      expect(results).to be_an(Array)
+      expect(results.length).to be <= 2
+      # Should not have RRF scores when only one search type
+      expect(results.first).not_to have_key(:rrf_score)
+    end
+
+    it "supports multi-column text search" do
+      query_vector = [0.2, 0.3, 0.4]
+      results = dataset.hybrid_search(
+        "Ruby",
+        vector: query_vector,
+        vector_column: "embedding",
+        text_columns: ["title", "content"],
+        limit: 3
+      )
+      
+      expect(results).to be_an(Array)
+      expect(results.length).to be <= 3
+      results.each do |doc|
+        expect(doc).to have_key(:rrf_score)
+      end
+    end
+
+    it "returns empty array when no results match" do
+      results = dataset.hybrid_search(
+        "NonexistentTerm",
+        text_column: "title",
+        limit: 10
+      )
+      
+      expect(results).to eq([])
+    end
+
+    it "returns empty array when neither query nor vector provided" do
+      results = dataset.hybrid_search(nil, limit: 10)
+      expect(results).to eq([])
+      
+      results = dataset.hybrid_search("", limit: 10)
+      expect(results).to eq([])
+    end
+
+    it "respects custom RRF k parameter" do
+      query_vector = [0.1, 0.2, 0.3]
+      results = dataset.hybrid_search(
+        "Ruby",
+        vector: query_vector,
+        vector_column: "embedding",
+        text_column: "title",
+        limit: 2,
+        rrf_k: 100
+      )
+      
+      expect(results).to be_an(Array)
+      results.each do |doc|
+        expect(doc).to have_key(:rrf_score)
+      end
+    end
+
+    it "raises error for invalid vector" do
+      expect {
+        dataset.hybrid_search("Ruby", vector: "not an array", text_column: "title")
+      }.to raise_error(ArgumentError, /Vector must be an array/)
+    end
+
+    it "handles documents appearing in only one result set" do
+      # Use a query that will return different documents in each search
+      query_vector = [0.9, 0.9, 0.9]  # Closer to JavaScript document
+      results = dataset.hybrid_search(
+        "Ruby",  # Will match Ruby documents
+        vector: query_vector,
+        vector_column: "embedding",
+        text_column: "title",
+        limit: 4
+      )
+      
+      expect(results).to be_an(Array)
+      # Should include documents from both searches
+      titles = results.map { |doc| doc[:title] }
+      expect(titles).to include("JavaScript Express") # From vector search
+      expect(titles).to include("Ruby on Rails")      # From text search
+      expect(titles).to include("Ruby Gems")          # From text search
+    end
+
+    it "properly deduplicates documents across result sets" do
+      # Use similar vector to Ruby documents
+      query_vector = [0.15, 0.25, 0.35]
+      results = dataset.hybrid_search(
+        "Ruby",
+        vector: query_vector,
+        vector_column: "embedding",
+        text_column: "title",
+        limit: 10
+      )
+      
+      # Count occurrences of each document
+      title_counts = results.group_by { |doc| doc[:title] }.transform_values(&:count)
+      
+      # Each document should appear only once
+      title_counts.each do |_title, count|
+        expect(count).to eq(1)
+      end
+    end
+  end
 end
