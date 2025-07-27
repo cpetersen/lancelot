@@ -9,15 +9,16 @@ Ruby bindings for [Lance](https://github.com/lancedb/lance), a modern columnar d
 - **Data Storage**: Add documents to datasets  
 - **Document Retrieval**: Read documents from datasets with enumerable support
 - **Vector Search**: Create vector indices and perform similarity search
+- **Full-Text Search**: Built-in full-text search with inverted indices
+- **Hybrid Search**: Combine text and vector search with Reciprocal Rank Fusion (RRF)
 - **Schema Support**: Define schemas with string, float32, and vector types
 - **Row Counting**: Get the number of rows in a dataset
 
 ### Planned
 
-- **Full-Text Search**: Built-in full-text search capabilities  
-- **Hybrid Search**: Combine text and vector search with RRF and other fusion methods
 - **Multimodal Support**: Store and search across different data types beyond text and vectors
 - **Schema Evolution**: Add new columns to existing datasets without rewriting data
+- **Additional Fusion Methods**: Support for other fusion algorithms beyond RRF
 
 ## Installation
 
@@ -121,10 +122,109 @@ results = dataset.text_search("programming", columns: ["title", "content", "tags
 
 **Note**: Full-text search requires creating inverted indices first. For simple pattern matching without indices, use SQL-like filtering with `where`.
 
+### Hybrid Search with Reciprocal Rank Fusion (RRF)
+
+Lancelot now supports hybrid search, combining vector and text search results using Reciprocal Rank Fusion:
+
+```ruby
+# Example 1: Using the same query for both vector and text search
+# First, let's assume we have a function that converts text to embeddings
+def text_to_embedding(text)
+  # Your embedding model here (e.g., using red-candle or another embedding service)
+  # Returns a vector representation of the text
+end
+
+# Search using both modalities with the same query
+query = "machine learning frameworks"
+query_embedding = text_to_embedding(query)
+
+results = dataset.hybrid_search(
+  query,                           # Text query
+  vector: query_embedding,         # Vector query (same content, embedded)
+  vector_column: "embedding",      # Vector column to search
+  text_column: "content",          # Text column to search
+  limit: 10
+)
+
+# Results are fused using RRF and include an rrf_score
+results.each do |doc|
+  puts "#{doc[:title]} - RRF Score: #{doc[:rrf_score]}"
+end
+```
+
+```ruby
+# Example 2: Multiple queries across different modalities
+# You can use different queries for vector and text search
+
+# Semantic vector search for conceptually similar content
+concept_embedding = text_to_embedding("deep learning neural networks")
+
+# Keyword text search for specific terms
+keyword_query = "PyTorch TensorFlow"
+
+results = dataset.hybrid_search(
+  keyword_query,                   # Specific keyword search
+  vector: concept_embedding,       # Broader semantic search
+  vector_column: "embedding",
+  text_column: "content",
+  limit: 20
+)
+```
+
+```ruby
+# Example 3: Multi-column text search with vector search
+# Search across multiple text columns while also doing vector similarity
+
+results = dataset.hybrid_search(
+  "ruby programming",
+  vector: text_to_embedding("object-oriented scripting language"),
+  vector_column: "embedding",
+  text_columns: ["title", "content", "tags"],  # Search multiple text columns
+  limit: 15
+)
+```
+
+```ruby
+# Example 4: Advanced RRF with custom k parameter
+# The k parameter (default 60) controls the fusion behavior
+# Lower k values give more weight to top-ranked results
+
+results = dataset.hybrid_search(
+  "distributed systems",
+  vector: text_to_embedding("distributed systems"),
+  vector_column: "embedding",
+  text_column: "content",
+  limit: 10,
+  rrf_k: 30  # More aggressive fusion, emphasizes top results
+)
+```
+
+```ruby
+# Example 5: Using RankFusion module directly for custom fusion
+# Useful when you want to combine results from multiple separate searches
+require 'lancelot/rank_fusion'
+
+# Perform multiple searches with different queries
+vector_results1 = dataset.vector_search(embedding1, column: "embedding", limit: 20)
+vector_results2 = dataset.vector_search(embedding2, column: "embedding", limit: 20)
+text_results1 = dataset.text_search("machine learning", column: "content", limit: 20)
+text_results2 = dataset.text_search("neural networks", column: "title", limit: 20)
+
+# Fuse all results using RRF
+fused_results = Lancelot::RankFusion.reciprocal_rank_fusion(
+  [vector_results1, vector_results2, text_results1, text_results2],
+  k: 60
+)
+
+# Take top 10 fused results
+top_results = fused_results.first(10)
+```
+
+**RRF Algorithm**: Reciprocal Rank Fusion calculates scores as `Σ(1/(k+rank))` across all result lists, where k=60 by default. Documents appearing in multiple result lists with high ranks get higher RRF scores.
+
 **Current Limitations:**
 - Schema must be defined when creating a dataset
 - Schema evolution is not yet implemented (Lance supports it, but our bindings don't expose it yet)
-- Hybrid search (RRF) is not yet implemented
 - Supported field types: string, float32, float64, int32, int64, boolean, and fixed-size vectors
 
 **Note on Lance's Schema Flexibility:**
