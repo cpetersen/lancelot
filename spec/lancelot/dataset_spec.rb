@@ -77,6 +77,94 @@ RSpec.describe Lancelot::Dataset do
       expect { dataset.add_documents(documents) }.not_to raise_error
       expect(dataset.count).to eq(1)
     end
+
+    context "with optional fields (schema evolution)" do
+      it "allows adding documents with missing fields that were added later" do
+        # This test verifies the fix for optional fields in conversion.rs
+        # Previously, this would fail with "key not found" errors
+        
+        # Step 1: Create dataset with N fields (text, score, embedding)
+        initial_docs = [
+          { text: "Document 1", score: 0.9, embedding: [0.1, 0.2, 0.3] },
+          { text: "Document 2", score: 0.8, embedding: [0.4, 0.5, 0.6] }
+        ]
+        dataset.add_documents(initial_docs)
+        expect(dataset.count).to eq(2)
+        
+        # Step 2: Close and reopen dataset
+        dataset = Lancelot::Dataset.open(dataset_path)
+        
+        # Step 3: Add documents with N+1 fields (adding 'metadata' field)
+        # In a real scenario, this would happen after schema evolution
+        # For now, we simulate by updating all existing docs with new field
+        all_docs = dataset.to_a
+        updated_docs = all_docs.map { |doc| doc.merge(metadata: "extra") }
+        
+        # Recreate dataset with expanded schema
+        FileUtils.rm_rf(dataset_path)
+        expanded_schema = {
+          text: :string,
+          score: :float32,
+          embedding: { type: "vector", dimension: 3 },
+          metadata: :string  # New field
+        }
+        dataset = Lancelot::Dataset.create(dataset_path, schema: expanded_schema)
+        dataset.add_documents(updated_docs)
+        expect(dataset.count).to eq(2)
+        
+        # Step 4: Add new documents with only N fields (missing 'metadata')
+        # This is the key test - documents without the new field should work
+        new_docs = [
+          { text: "Document 3", score: 0.7, embedding: [0.7, 0.8, 0.9] },
+          { text: "Document 4", score: 0.6, embedding: [1.0, 1.1, 1.2] }
+        ]
+        
+        # This should NOT raise an error with the fix
+        expect { dataset.add_documents(new_docs) }.not_to raise_error
+        expect(dataset.count).to eq(4)
+        
+        # Verify the documents were added correctly
+        all_data = dataset.to_a
+        expect(all_data.size).to eq(4)
+        
+        # Documents 1-2 should have metadata
+        expect(all_data[0][:metadata]).to eq("extra")
+        expect(all_data[1][:metadata]).to eq("extra")
+        
+        # Documents 3-4 should have nil metadata (optional field)
+        expect(all_data[2][:metadata]).to be_nil
+        expect(all_data[3][:metadata]).to be_nil
+      end
+
+      it "handles documents with varying fields in a single batch" do
+        # Create dataset with a schema that has optional fields
+        schema = {
+          id: :string,
+          text: :string,
+          score: :float32,
+          category: :string  # This will be optional
+        }
+        dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+        
+        # Add documents where some have all fields and some are missing fields
+        mixed_docs = [
+          { id: "1", text: "Full document", score: 0.9, category: "complete" },
+          { id: "2", text: "Partial document", score: 0.8 },  # Missing category
+          { id: "3", text: "Another full", score: 0.7, category: "complete" },
+          { id: "4", text: "Another partial", score: 0.6 }  # Missing category
+        ]
+        
+        expect { dataset.add_documents(mixed_docs) }.not_to raise_error
+        expect(dataset.count).to eq(4)
+        
+        # Verify the data
+        all_data = dataset.to_a
+        expect(all_data[0][:category]).to eq("complete")
+        expect(all_data[1][:category]).to be_nil
+        expect(all_data[2][:category]).to eq("complete")
+        expect(all_data[3][:category]).to be_nil
+      end
+    end
   end
 
   describe "#<<" do

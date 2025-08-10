@@ -2,11 +2,51 @@
 
 Ruby bindings for [Lance](https://github.com/lancedb/lance), a modern columnar data format for ML. Lancelot provides a Ruby-native interface to Lance, enabling efficient storage and search of multimodal data including text, vectors, and more.
 
+## Quickstart
+
+```ruby
+require 'lancelot'
+require 'red-candle'
+
+strings = [
+  "apple",
+  "orange",
+  "google"
+]
+
+model = Candle::EmbeddingModel.from_pretrained
+
+dataset = Lancelot::Dataset.create("words", schema: {
+  text: :string,
+  embedding: { type: "vector", dimension: 768 }
+})
+
+records = strings.collect do |string|
+  embedding = model.embedding(string).first.to_a
+  { text: string, embedding: embedding }
+end
+
+dataset.create_vector_index("embedding")
+dataset.create_text_index("text")
+
+dataset.add_documents(records)
+
+query = "fruit"
+query_embedding = model.embedding(query).first.to_a
+dataset.vector_search(query_embedding, column: "embedding", limit: 5).each { |r| puts r[:text] }; nil
+
+dataset.text_search("apple", column: "text", limit: 5).each { |r| puts r[:text] }; nil
+
+query = "tech company"
+query_embedding = model.embedding(query).first.to_a
+dataset.vector_search(query_embedding, column: "embedding", limit: 5).each { |r| puts r[:text] }; nil
+```
+
 ## Features
 
 ### Implemented
 - **Dataset Creation**: Create Lance datasets with schemas
-- **Data Storage**: Add documents to datasets  
+- **Data Storage**: Add documents to datasets
 - **Document Retrieval**: Read documents from datasets with enumerable support
 - **Vector Search**: Create vector indices and perform similarity search
 - **Full-Text Search**: Built-in full-text search with inverted indices
