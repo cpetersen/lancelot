@@ -26,10 +26,11 @@ records = strings.collect do |string|
   { text: string, embedding: embedding }
 end
 
+dataset.add_documents(records)
+
 dataset.create_vector_index("embedding")
 dataset.create_text_index("text")
 
-dataset.add_documents(records)
 
 query = "fruit"
 query_embedding = model.embedding(query).first.to_a
