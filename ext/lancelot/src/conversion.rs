@@ -39,11 +39,13 @@ pub fn build_record_batch(
         let item = RHash::try_convert(item)?;
         for field in schema.fields() {
             let key = Symbol::new(field.name());
-            let value: Value = item.fetch(key)
-                .or_else(|_| {
+            // Make fields optional - use get instead of fetch
+            let value: Value = item.get(key)
+                .or_else(|| {
                     // Try with string key  
-                    item.fetch(field.name().as_str())
-                })?;
+                    item.get(field.name().as_str())
+                })
+                .unwrap_or_else(|| Ruby::get().unwrap().qnil().as_value());
             
             match field.data_type() {
                 DataType::Utf8 => {
