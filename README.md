@@ -16,7 +16,7 @@ strings = [
 
 model = Candle::EmbeddingModel.from_pretrained
 
-dataset = Lancelot::Dataset.create("words", schema: {
+dataset = Lancelot::Dataset.open_or_create("words", schema: {
   text: :string,
   embedding: { type: "vector", dimension: 768 }
 })
@@ -54,12 +54,6 @@ dataset.vector_search(query_embedding, column: "embedding", limit: 5).each { |r|
 - **Hybrid Search**: Combine text and vector search with Reciprocal Rank Fusion (RRF)
 - **Schema Support**: Define schemas with string, float32, and vector types
 - **Row Counting**: Get the number of rows in a dataset
-
-### Planned
-
-- **Multimodal Support**: Store and search across different data types beyond text and vectors
-- **Schema Evolution**: Add new columns to existing datasets without rewriting data
-- **Additional Fusion Methods**: Support for other fusion algorithms beyond RRF
 
 ## Installation
 

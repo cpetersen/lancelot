@@ -49,6 +49,44 @@ RSpec.describe Lancelot::Dataset do
     end
   end
 
+  describe ".open_or_create" do
+    let(:schema) { { text: :string, embedding: { type: "vector", dimension: 3 } } }
+
+    it "creates a new dataset if it doesn't exist" do
+      expect(File.exist?(dataset_path)).to be false
+      
+      dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+      expect(dataset).to be_a(Lancelot::Dataset)
+      expect(File.exist?(dataset_path)).to be true
+    end
+
+    it "opens existing dataset if it already exists" do
+      # First create a dataset with some data
+      initial_dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      initial_dataset.add_documents([{ text: "test", embedding: [1.0, 2.0, 3.0] }])
+      expect(initial_dataset.count).to eq(1)
+      
+      # Now open_or_create should open it, not recreate it
+      dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+      expect(dataset).to be_a(Lancelot::Dataset)
+      expect(dataset.count).to eq(1)  # Data should still be there
+    end
+
+    it "is idempotent - can be called multiple times safely" do
+      # First call creates
+      dataset1 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+      dataset1.add_documents([{ text: "doc1", embedding: [0.1, 0.2, 0.3] }])
+      
+      # Second call opens
+      dataset2 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+      expect(dataset2.count).to eq(1)
+      
+      # Third call also opens
+      dataset3 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+      expect(dataset3.count).to eq(1)
+    end
+  end
+
   describe "#add_documents" do
     let(:dataset) do
       schema = {

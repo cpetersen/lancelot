@@ -15,6 +15,14 @@ module Lancelot
         dataset
       end
 
+      def open_or_create(path, schema:)
+        if File.exist?(path)
+          open(path)
+        else
+          create(path, schema: schema)
+        end
+      end
+
       private
 
       def normalize_schema(schema)
