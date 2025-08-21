@@ -159,9 +159,9 @@ pub fn build_record_batch(
         .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
 }
 
-pub fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
+pub fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<RArray, Error> {
     let ruby = Ruby::get().unwrap();
-    let mut documents = Vec::new();
+    let documents = ruby.ary_new();
     
     let num_rows = batch.num_rows();
     let schema = batch.schema();
@@ -172,6 +172,15 @@ pub fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
         for (col_idx, field) in schema.fields().iter().enumerate() {
             let column = batch.column(col_idx);
             let key = Symbol::new(field.name());
+            
+            // CRITICAL: Add bounds checking for all array access
+            if row_idx >= column.len() {
+                return Err(Error::new(
+                    magnus::exception::runtime_error(), 
+                    format!("Row index {} out of bounds for column '{}' with length {}", 
+                            row_idx, field.name(), column.len())
+                ));
+            }
             
             match field.data_type() {
                 DataType::Utf8 => {
@@ -225,9 +234,19 @@ pub fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
                         let float_array = values.as_any().downcast_ref::<Float32Array>()
                             .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Failed to cast vector values to Float32Array"))?;
                         
+                        // CRITICAL: Verify the float_array has the expected size
+                        let expected_size = *list_size as usize;
+                        if float_array.len() != expected_size {
+                            return Err(Error::new(
+                                magnus::exception::runtime_error(),
+                                format!("Vector data corruption: expected {} elements but found {} for field '{}'",
+                                        expected_size, float_array.len(), field.name())
+                            ));
+                        }
+                        
                         let ruby_array = ruby.ary_new();
-                        for i in 0..*list_size {
-                            ruby_array.push(float_array.value(i as usize))?;
+                        for i in 0..expected_size {
+                            ruby_array.push(float_array.value(i))?;
                         }
                         doc.aset(key, ruby_array)?;
                     }
@@ -238,7 +257,7 @@ pub fn convert_batch_to_ruby(batch: &RecordBatch) -> Result<Vec<RHash>, Error> {
             }
         }
         
-        documents.push(doc);
+        documents.push(doc)?;
     }
     
     Ok(documents)

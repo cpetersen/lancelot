@@ -1,4 +1,4 @@
-use magnus::{Error, Ruby, RHash, RArray, Symbol, TryConvert, function, method, RClass, Module, Object};
+use magnus::{Error, Ruby, RHash, RArray, Symbol, TryConvert, Value, function, method, RClass, Module, Object};
 use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -157,9 +157,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
@@ -191,9 +192,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
@@ -265,9 +267,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
@@ -330,9 +333,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
@@ -380,9 +384,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
@@ -422,9 +427,10 @@ impl LancelotDataset {
         let result_array = ruby.ary_new();
 
         for batch in batches {
-            let documents = convert_batch_to_ruby(&batch)?;
-            for doc in documents {
-                result_array.push(doc)?;
+            let batch_docs = convert_batch_to_ruby(&batch)?;
+            // Merge arrays by pushing each element
+            for i in 0..batch_docs.len() {
+                result_array.push(batch_docs.entry::<Value>(i as isize)?)?;
             }
         }
 
