@@ -1,4 +1,4 @@
-# Lancelot
+<img src="/docs/assets/lancelot-wide.png" alt="lancelot" height="80px">
 
 Ruby bindings for [Lance](https://github.com/lancedb/lance), a modern columnar data format for ML. Lancelot provides a Ruby-native interface to Lance, enabling efficient storage and search of multimodal data including text, vectors, and more.
 
