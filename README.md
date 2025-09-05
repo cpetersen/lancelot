@@ -57,6 +57,25 @@ dataset.vector_search(query_embedding, column: "embedding", limit: 5).each { |r|
 
 ## Installation
 
+### System Requirements
+
+Lancelot requires the Protocol Buffers compiler (`protoc`) to build from source:
+
+```bash
+# macOS (via Homebrew)
+brew install protobuf
+
+# Ubuntu/Debian
+sudo apt-get install protobuf-compiler
+
+# Other systems
+# Download from https://github.com/protocolbuffers/protobuf/releases
+```
+
+**Note**: The `protoc` compiler is only needed when building the gem from source. Pre-built gems distributed through RubyGems.org do not require `protoc` to be installed.
+
+### Install the Gem
+
 Install the gem and add to the application's Gemfile by executing:
 
 ```bash
