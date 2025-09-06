@@ -256,9 +256,6 @@ RSpec.describe Lancelot::Dataset do
       dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
       returned_schema = dataset.schema
       
-      # NOTE: These expectations will fail until we implement real schema retrieval
-      # Currently returns hardcoded {:text=>"string", :score=>"float32"}
-      pending "Real schema retrieval not yet implemented"
       
       expect(returned_schema[:title]).to eq("string")
       expect(returned_schema[:count]).to eq("int32") 
@@ -276,8 +273,6 @@ RSpec.describe Lancelot::Dataset do
       
       dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
       returned_schema = dataset.schema
-      
-      pending "Real schema retrieval not yet implemented"
       
       expect(returned_schema[:text]).to eq("string")
       expect(returned_schema[:embedding]).to be_a(Hash)
@@ -303,8 +298,6 @@ RSpec.describe Lancelot::Dataset do
       # Reopen and verify schema matches
       dataset2 = Lancelot::Dataset.open(dataset_path)
       reopened_schema = dataset2.schema
-      
-      pending "Real schema retrieval not yet implemented"
       
       expect(reopened_schema).to eq(original_schema)
       expect(reopened_schema[:id]).to eq("string")
@@ -350,8 +343,6 @@ RSpec.describe Lancelot::Dataset do
       dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
       returned_schema = dataset.schema
       
-      pending "Real schema retrieval not yet implemented"
-      
       expect(returned_schema[:string_field]).to eq("string")
       expect(returned_schema[:int32_field]).to eq("int32")
       expect(returned_schema[:int64_field]).to eq("int64")
@@ -386,8 +377,6 @@ RSpec.describe Lancelot::Dataset do
         dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
         returned_schema = dataset.schema
         
-        pending "Real schema retrieval not yet implemented"
-        
         expect(returned_schema[:name]).to eq("string")
         expect(returned_schema[:value]).to eq("float32")
       end
@@ -405,8 +394,6 @@ RSpec.describe Lancelot::Dataset do
         
         # Then open with open_or_create
         dataset2 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
-        
-        pending "Real schema retrieval not yet implemented"
         
         expect(dataset2.schema).to eq(dataset1.schema)
         expect(dataset2.schema[:vector][:dimension]).to eq(5)
