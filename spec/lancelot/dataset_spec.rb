@@ -243,6 +243,177 @@ RSpec.describe Lancelot::Dataset do
     end
   end
 
+  describe "#schema" do
+    it "returns the actual dataset schema for basic types" do
+      schema = {
+        title: :string,
+        count: :int32,
+        rating: :float64,
+        score: :float32,
+        active: :boolean
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      # NOTE: These expectations will fail until we implement real schema retrieval
+      # Currently returns hardcoded {:text=>"string", :score=>"float32"}
+      pending "Real schema retrieval not yet implemented"
+      
+      expect(returned_schema[:title]).to eq("string")
+      expect(returned_schema[:count]).to eq("int32") 
+      expect(returned_schema[:rating]).to eq("float64")
+      expect(returned_schema[:score]).to eq("float32")
+      expect(returned_schema[:active]).to eq("boolean")
+    end
+    
+    it "returns correct schema for vector columns" do
+      schema = {
+        text: :string,
+        embedding: { type: "vector", dimension: 768 },
+        small_vector: { type: "vector", dimension: 3 }
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      pending "Real schema retrieval not yet implemented"
+      
+      expect(returned_schema[:text]).to eq("string")
+      expect(returned_schema[:embedding]).to be_a(Hash)
+      expect(returned_schema[:embedding][:type]).to eq("vector")
+      expect(returned_schema[:embedding][:dimension]).to eq(768)
+      expect(returned_schema[:small_vector][:dimension]).to eq(3)
+    end
+    
+    it "returns correct schema after reopening dataset" do
+      schema = {
+        id: :string,
+        value: :float32,
+        embedding: { type: "vector", dimension: 128 }
+      }
+      
+      # Create dataset with schema
+      dataset1 = Lancelot::Dataset.create(dataset_path, schema: schema)
+      dataset1.add_documents([
+        { id: "test1", value: 1.0, embedding: Array.new(128, 0.1) }
+      ])
+      original_schema = dataset1.schema
+      
+      # Reopen and verify schema matches
+      dataset2 = Lancelot::Dataset.open(dataset_path)
+      reopened_schema = dataset2.schema
+      
+      pending "Real schema retrieval not yet implemented"
+      
+      expect(reopened_schema).to eq(original_schema)
+      expect(reopened_schema[:id]).to eq("string")
+      expect(reopened_schema[:value]).to eq("float32")
+      expect(reopened_schema[:embedding][:type]).to eq("vector")
+      expect(reopened_schema[:embedding][:dimension]).to eq(128)
+    end
+    
+    it "preserves schema after adding data" do
+      schema = {
+        text: :string,
+        score: :float32
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      initial_schema = dataset.schema
+      
+      # Add various documents
+      dataset.add_documents([
+        { text: "doc1", score: 0.5 },
+        { text: "doc2", score: 0.7 }
+      ])
+      
+      dataset << { text: "doc3", score: 0.9 }
+      
+      final_schema = dataset.schema
+      
+      # Schema should remain unchanged after data operations
+      expect(final_schema).to eq(initial_schema)
+    end
+    
+    it "handles all supported types correctly" do
+      schema = {
+        string_field: :string,
+        int32_field: :int32,
+        int64_field: :int64, 
+        float32_field: :float32,
+        float64_field: :float64,
+        bool_field: :boolean,
+        vector_field: { type: "vector", dimension: 10 }
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      pending "Real schema retrieval not yet implemented"
+      
+      expect(returned_schema[:string_field]).to eq("string")
+      expect(returned_schema[:int32_field]).to eq("int32")
+      expect(returned_schema[:int64_field]).to eq("int64")
+      expect(returned_schema[:float32_field]).to eq("float32")
+      expect(returned_schema[:float64_field]).to eq("float64")
+      expect(returned_schema[:bool_field]).to eq("boolean")
+      expect(returned_schema[:vector_field]).to be_a(Hash)
+      expect(returned_schema[:vector_field][:type]).to eq("vector")
+      expect(returned_schema[:vector_field][:dimension]).to eq(10)
+    end
+    
+    it "returns consistent key format (symbols)" do
+      schema = {
+        my_field: :string,
+        another_field: :float32
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      # Keys should be symbols, not strings
+      expect(returned_schema.keys).to all(be_a(Symbol))
+    end
+    
+    context "with open_or_create" do
+      it "returns correct schema when creating new dataset" do
+        schema = {
+          name: :string,
+          value: :float32
+        }
+        
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        returned_schema = dataset.schema
+        
+        pending "Real schema retrieval not yet implemented"
+        
+        expect(returned_schema[:name]).to eq("string")
+        expect(returned_schema[:value]).to eq("float32")
+      end
+      
+      it "returns correct schema when opening existing dataset" do
+        schema = {
+          name: :string,
+          value: :float32,
+          vector: { type: "vector", dimension: 5 }
+        }
+        
+        # First create
+        dataset1 = Lancelot::Dataset.create(dataset_path, schema: schema)
+        dataset1 << { name: "test", value: 1.0, vector: [0.1, 0.2, 0.3, 0.4, 0.5] }
+        
+        # Then open with open_or_create
+        dataset2 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        
+        pending "Real schema retrieval not yet implemented"
+        
+        expect(dataset2.schema).to eq(dataset1.schema)
+        expect(dataset2.schema[:vector][:dimension]).to eq(5)
+      end
+    end
+  end
+
   describe "document retrieval" do
     let(:dataset) do
       schema = { text: :string, score: :float32 }
