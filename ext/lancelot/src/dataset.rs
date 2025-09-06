@@ -11,6 +11,26 @@ use futures::stream::TryStreamExt;
 
 use crate::schema::build_arrow_schema;
 use crate::conversion::{build_record_batch, convert_batch_to_ruby};
+use arrow_schema::DataType;
+
+/// Convert Arrow DataType to Ruby-friendly string representation
+fn datatype_to_ruby_string(dtype: &DataType) -> &'static str {
+    match dtype {
+        DataType::Utf8 | DataType::LargeUtf8 => "string",
+        DataType::Boolean => "boolean",
+        DataType::Int8 | DataType::Int16 | DataType::Int32 => "int32",
+        DataType::Int64 => "int64",
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 => "int32",
+        DataType::UInt64 => "int64",
+        DataType::Float32 => "float32",
+        DataType::Float64 => "float64",
+        DataType::Date32 => "date",
+        DataType::Date64 => "datetime",
+        DataType::Timestamp(_, _) => "datetime",
+        DataType::FixedSizeList(_, _) => "vector", // Will be handled specially
+        _ => "unknown"
+    }
+}
 
 #[magnus::wrap(class = "Lancelot::Dataset", free_immediately, size)]
 pub struct LancelotDataset {
@@ -121,16 +141,40 @@ impl LancelotDataset {
 
     pub fn schema(&self) -> Result<RHash, Error> {
         let dataset = self.dataset.borrow();
-        let _dataset = dataset.as_ref()
+        let dataset = dataset.as_ref()
             .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Dataset not opened"))?;
+
+        // Get the actual schema from the Lance dataset
+        let schema = self.runtime.borrow_mut().block_on(async {
+            dataset.schema()
+        });
+        
+        // Convert Lance schema to Arrow schema
+        let arrow_schema: arrow_schema::Schema = schema.into();
+        let arrow_schema = Arc::new(arrow_schema);
 
         let ruby = Ruby::get().unwrap();
         let hash = ruby.hash_new();
         
-        // TODO: Read actual schema from Lance dataset once we figure out the 0.31 API
-        // For now, return a hardcoded schema that matches what we support
-        hash.aset(Symbol::new("text"), "string")?;
-        hash.aset(Symbol::new("score"), "float32")?;
+        // Iterate over Arrow schema fields
+        for field in arrow_schema.fields() {
+            let field_name = Symbol::new(&field.name());
+            
+            // Handle vector columns specially
+            if let DataType::FixedSizeList(inner_field, dimension) = field.data_type() {
+                // Check if it's a vector (float list)
+                if matches!(inner_field.data_type(), DataType::Float32 | DataType::Float16) {
+                    let vector_info = ruby.hash_new();
+                    vector_info.aset(Symbol::new("type"), "vector")?;
+                    vector_info.aset(Symbol::new("dimension"), *dimension)?;
+                    hash.aset(field_name, vector_info)?;
+                    continue;
+                }
+            }
+            
+            let field_type = datatype_to_ruby_string(field.data_type());
+            hash.aset(field_name, field_type)?;
+        }
 
         Ok(hash)
     }

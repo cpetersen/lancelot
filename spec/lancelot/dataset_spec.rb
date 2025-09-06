@@ -243,6 +243,164 @@ RSpec.describe Lancelot::Dataset do
     end
   end
 
+  describe "#schema" do
+    it "returns the actual dataset schema for basic types" do
+      schema = {
+        title: :string,
+        count: :int32,
+        rating: :float64,
+        score: :float32,
+        active: :boolean
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      
+      expect(returned_schema[:title]).to eq("string")
+      expect(returned_schema[:count]).to eq("int32") 
+      expect(returned_schema[:rating]).to eq("float64")
+      expect(returned_schema[:score]).to eq("float32")
+      expect(returned_schema[:active]).to eq("boolean")
+    end
+    
+    it "returns correct schema for vector columns" do
+      schema = {
+        text: :string,
+        embedding: { type: "vector", dimension: 768 },
+        small_vector: { type: "vector", dimension: 3 }
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      expect(returned_schema[:text]).to eq("string")
+      expect(returned_schema[:embedding]).to be_a(Hash)
+      expect(returned_schema[:embedding][:type]).to eq("vector")
+      expect(returned_schema[:embedding][:dimension]).to eq(768)
+      expect(returned_schema[:small_vector][:dimension]).to eq(3)
+    end
+    
+    it "returns correct schema after reopening dataset" do
+      schema = {
+        id: :string,
+        value: :float32,
+        embedding: { type: "vector", dimension: 128 }
+      }
+      
+      # Create dataset with schema
+      dataset1 = Lancelot::Dataset.create(dataset_path, schema: schema)
+      dataset1.add_documents([
+        { id: "test1", value: 1.0, embedding: Array.new(128, 0.1) }
+      ])
+      original_schema = dataset1.schema
+      
+      # Reopen and verify schema matches
+      dataset2 = Lancelot::Dataset.open(dataset_path)
+      reopened_schema = dataset2.schema
+      
+      expect(reopened_schema).to eq(original_schema)
+      expect(reopened_schema[:id]).to eq("string")
+      expect(reopened_schema[:value]).to eq("float32")
+      expect(reopened_schema[:embedding][:type]).to eq("vector")
+      expect(reopened_schema[:embedding][:dimension]).to eq(128)
+    end
+    
+    it "preserves schema after adding data" do
+      schema = {
+        text: :string,
+        score: :float32
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      initial_schema = dataset.schema
+      
+      # Add various documents
+      dataset.add_documents([
+        { text: "doc1", score: 0.5 },
+        { text: "doc2", score: 0.7 }
+      ])
+      
+      dataset << { text: "doc3", score: 0.9 }
+      
+      final_schema = dataset.schema
+      
+      # Schema should remain unchanged after data operations
+      expect(final_schema).to eq(initial_schema)
+    end
+    
+    it "handles all supported types correctly" do
+      schema = {
+        string_field: :string,
+        int32_field: :int32,
+        int64_field: :int64, 
+        float32_field: :float32,
+        float64_field: :float64,
+        bool_field: :boolean,
+        vector_field: { type: "vector", dimension: 10 }
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      expect(returned_schema[:string_field]).to eq("string")
+      expect(returned_schema[:int32_field]).to eq("int32")
+      expect(returned_schema[:int64_field]).to eq("int64")
+      expect(returned_schema[:float32_field]).to eq("float32")
+      expect(returned_schema[:float64_field]).to eq("float64")
+      expect(returned_schema[:bool_field]).to eq("boolean")
+      expect(returned_schema[:vector_field]).to be_a(Hash)
+      expect(returned_schema[:vector_field][:type]).to eq("vector")
+      expect(returned_schema[:vector_field][:dimension]).to eq(10)
+    end
+    
+    it "returns consistent key format (symbols)" do
+      schema = {
+        my_field: :string,
+        another_field: :float32
+      }
+      
+      dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+      returned_schema = dataset.schema
+      
+      # Keys should be symbols, not strings
+      expect(returned_schema.keys).to all(be_a(Symbol))
+    end
+    
+    context "with open_or_create" do
+      it "returns correct schema when creating new dataset" do
+        schema = {
+          name: :string,
+          value: :float32
+        }
+        
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        returned_schema = dataset.schema
+        
+        expect(returned_schema[:name]).to eq("string")
+        expect(returned_schema[:value]).to eq("float32")
+      end
+      
+      it "returns correct schema when opening existing dataset" do
+        schema = {
+          name: :string,
+          value: :float32,
+          vector: { type: "vector", dimension: 5 }
+        }
+        
+        # First create
+        dataset1 = Lancelot::Dataset.create(dataset_path, schema: schema)
+        dataset1 << { name: "test", value: 1.0, vector: [0.1, 0.2, 0.3, 0.4, 0.5] }
+        
+        # Then open with open_or_create
+        dataset2 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        
+        expect(dataset2.schema).to eq(dataset1.schema)
+        expect(dataset2.schema[:vector][:dimension]).to eq(5)
+      end
+    end
+  end
+
   describe "document retrieval" do
     let(:dataset) do
       schema = { text: :string, score: :float32 }
@@ -306,6 +464,193 @@ RSpec.describe Lancelot::Dataset do
         high_score_docs = dataset.select { |doc| doc[:score] && doc[:score] >= 0.9 }
         expect(high_score_docs.length).to eq(1)
         expect(high_score_docs.first[:text]).to eq("Ruby is great")
+      end
+    end
+
+    describe "streaming behavior" do
+      context "with moderate-sized dataset" do
+        before do
+          # Add enough documents to likely span multiple batches
+          # Lance typically uses batches of 1024 rows, but we'll use 100 for testing
+          100.times do |i|
+            dataset << { text: "Document #{i}", score: i.to_f / 100 }
+          end
+        end
+
+        it "supports early termination with take" do
+          # Should only process first 5 documents, not all 103
+          taken = dataset.take(5)
+          expect(taken.length).to eq(5)
+          expect(taken.first[:text]).to eq("Ruby is great")
+        end
+
+        it "supports early termination with first(n)" do
+          # Should efficiently get first 10 without processing all
+          first_ten = dataset.first(10)
+          expect(first_ten.length).to eq(10)
+        end
+
+        it "stops iteration on break" do
+          count = 0
+          dataset.each do |doc|
+            count += 1
+            break if count == 7
+          end
+          expect(count).to eq(7)
+        end
+
+        it "works with lazy enumerator chains" do
+          # Lazy evaluation should prevent loading all documents
+          result = dataset.lazy.select { |doc| doc[:score] && doc[:score] > 0.5 }.first(3)
+          expect(result.length).to eq(3)
+          expect(result.all? { |doc| doc[:score] > 0.5 }).to be true
+        end
+
+        it "handles each_slice efficiently" do
+          slices = []
+          dataset.each_slice(10) do |slice|
+            slices << slice
+            break if slices.length == 2  # Only process first 20 documents
+          end
+          expect(slices.length).to eq(2)
+          expect(slices.first.length).to eq(10)
+        end
+      end
+
+      context "with empty dataset" do
+        let(:empty_dataset) do
+          Lancelot::Dataset.create(
+            File.join(temp_dir, "empty_dataset"),
+            schema: { text: :string, score: :float32 }
+          )
+        end
+
+        after { FileUtils.rm_rf(File.join(temp_dir, "empty_dataset")) }
+
+        it "handles each on empty dataset" do
+          count = 0
+          empty_dataset.each { count += 1 }
+          expect(count).to eq(0)
+        end
+
+        it "returns empty array for to_a" do
+          expect(empty_dataset.to_a).to eq([])
+        end
+
+        it "returns nil for first on empty dataset" do
+          expect(empty_dataset.first).to be_nil
+        end
+
+        it "returns empty array for first(n) on empty dataset" do
+          expect(empty_dataset.first(5)).to eq([])
+        end
+      end
+
+      context "with single document" do
+        let(:single_dataset) do
+          ds = Lancelot::Dataset.create(
+            File.join(temp_dir, "single_dataset"),
+            schema: { text: :string, score: :float32 }
+          )
+          ds << { text: "Only one", score: 1.0 }
+          ds
+        end
+
+        after { FileUtils.rm_rf(File.join(temp_dir, "single_dataset")) }
+
+        it "iterates over single document" do
+          docs = single_dataset.to_a
+          expect(docs.length).to eq(1)
+          expect(docs.first[:text]).to eq("Only one")
+        end
+
+        it "handles first correctly" do
+          expect(single_dataset.first[:text]).to eq("Only one")
+        end
+
+        it "handles first(n) correctly" do
+          expect(single_dataset.first(5).length).to eq(1)
+        end
+      end
+
+      context "enumerable method behavior" do
+        let(:enum_dataset) do
+          ds = Lancelot::Dataset.create(
+            File.join(temp_dir, "enum_dataset"),
+            schema: { text: :string, score: :float32 }
+          )
+          ds.add_documents([
+            { text: "Ruby is great", score: 0.95 },
+            { text: "Python is cool", score: 0.7 },
+            { text: "JavaScript is everywhere", score: 0.8 }
+          ])
+          ds
+        end
+
+        after { FileUtils.rm_rf(File.join(temp_dir, "enum_dataset")) }
+
+        it "supports find" do
+          found = enum_dataset.find { |doc| doc[:text].include?("Python") }
+          expect(found[:text]).to eq("Python is cool")
+        end
+
+        it "supports find with no match" do
+          found = enum_dataset.find { |doc| doc[:text].include?("Rust") }
+          expect(found).to be_nil
+        end
+
+        it "supports any?" do
+          expect(enum_dataset.any? { |doc| doc[:score] && doc[:score] > 0.8 }).to be true
+          expect(enum_dataset.any? { |doc| doc[:score] && doc[:score] > 1.0 }).to be false
+        end
+
+        it "supports all?" do
+          expect(enum_dataset.all? { |doc| doc[:text].is_a?(String) }).to be true
+          expect(enum_dataset.all? { |doc| doc[:score] && doc[:score] > 0.5 }).to be true
+          expect(enum_dataset.all? { |doc| doc[:score] && doc[:score] > 0.9 }).to be false
+        end
+
+        it "supports none?" do
+          expect(enum_dataset.none? { |doc| doc[:score] && doc[:score] > 1.0 }).to be true
+          expect(enum_dataset.none? { |doc| doc[:text].include?("Ruby") }).to be false
+        end
+
+        it "supports count with block" do
+          count = enum_dataset.count { |doc| doc[:score] && doc[:score] >= 0.9 }
+          expect(count).to eq(1)  # Only Ruby (0.95) is >= 0.9
+        end
+
+        it "allows multiple concurrent enumerators" do
+          enum1 = enum_dataset.each
+          enum2 = enum_dataset.each
+          
+          # Both should work independently
+          doc1 = enum1.next
+          doc2 = enum2.next
+          expect(doc1).to eq(doc2)  # Both start from beginning
+          
+          # Advance enum1
+          enum1.next
+          doc1_third = enum1.next
+          
+          # enum2 should still be on second position
+          doc2_second = enum2.next
+          expect(doc2_second).not_to eq(doc1_third)
+        end
+      end
+
+      context "with each.with_index" do
+        it "provides correct indices" do
+          indices = []
+          texts = []
+          dataset.each.with_index do |doc, i|
+            indices << i
+            texts << doc[:text]
+            break if i >= 2
+          end
+          expect(indices).to eq([0, 1, 2])
+          expect(texts).to eq(["Ruby is great", "Python is cool", "JavaScript is everywhere"])
+        end
       end
     end
   end

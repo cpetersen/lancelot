@@ -10,13 +10,13 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Ruby bindings for Lance - a modern columnar data format for ML"
   spec.description = "Lancelot provides a Ruby-native interface to Lance, enabling efficient storage and search of multimodal data including text, vectors, and more."
-  spec.homepage = "https://github.com/cpetersen/lancelot"
+  spec.homepage = "https://github.com/scientist-labs/lancelot"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/cpetersen/lancelot"
-  spec.metadata["changelog_uri"] = "https://github.com/cpetersen/lancelot/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/scientist-labs/lancelot"
+  spec.metadata["changelog_uri"] = "https://github.com/scientist-labs/lancelot/blob/main/CHANGELOG.md"
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
