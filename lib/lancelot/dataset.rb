@@ -62,8 +62,16 @@ module Lancelot
       count_rows
     end
 
-    alias_method :count, :size
     alias_method :length, :size
+    
+    # Override Enumerable's count to use our efficient count_rows when no block given
+    def count(&block)
+      if block_given?
+        super(&block)  # Use Enumerable's count with block
+      else
+        count_rows  # Use our efficient count without block
+      end
+    end
 
     def all
       scan_all
