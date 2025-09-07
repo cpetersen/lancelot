@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'fileutils'
+
 module Lancelot
   class Dataset
     class << self
@@ -15,10 +17,40 @@ module Lancelot
         dataset
       end
 
-      def open_or_create(path, schema:)
+      def open_or_create(path, schema:, mode: nil)
+        # Check if path exists
         if File.exist?(path)
-          open(path)
+          # Check if it's a file instead of directory
+          if File.file?(path)
+            if mode == "overwrite"
+              # Remove the file and create dataset
+              FileUtils.rm_f(path)
+              create(path, schema: schema)
+            else
+              raise ArgumentError, "Path #{path} exists as a file, not a directory. " \
+                                  "Use mode: 'overwrite' to replace it, or choose a different path."
+            end
+          # Path exists as directory - check if it's a valid Lance dataset
+          elsif File.exist?(File.join(path, "_versions"))
+            # Valid dataset exists - open it
+            open(path)
+          elsif !Dir.empty?(path)
+            # Non-empty directory that's not a Lance dataset
+            if mode == "overwrite"
+              # User explicitly wants to overwrite - remove and create new
+              FileUtils.rm_rf(path)
+              create(path, schema: schema)
+            else
+              # Fail safely - don't overwrite existing non-dataset directory
+              raise ArgumentError, "Directory exists at #{path} but is not a valid Lance dataset. " \
+                                  "Use mode: 'overwrite' to replace it, or choose a different path."
+            end
+          else
+            # Empty directory - safe to create dataset
+            create(path, schema: schema)
+          end
         else
+          # Path doesn't exist - create new dataset
           create(path, schema: schema)
         end
       end
