@@ -85,6 +85,121 @@ RSpec.describe Lancelot::Dataset do
       dataset3 = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
       expect(dataset3.count).to eq(1)
     end
+
+    context "with existing non-empty directory" do
+      before do
+        FileUtils.mkdir_p(dataset_path)
+        File.write(File.join(dataset_path, "existing_file.txt"), "important data")
+      end
+
+      it "raises an error when directory contains non-dataset files" do
+        expect {
+          Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        }.to raise_error(ArgumentError, /Directory exists.*but is not a valid Lance dataset/)
+      end
+
+      it "suggests using mode: 'overwrite' in error message" do
+        expect {
+          Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        }.to raise_error(ArgumentError, /Use mode: 'overwrite' to replace it/)
+      end
+
+      it "overwrites directory when mode: 'overwrite' is specified" do
+        existing_file = File.join(dataset_path, "existing_file.txt")
+        expect(File.exist?(existing_file)).to be true
+
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema, mode: "overwrite")
+        
+        expect(dataset).to be_a(Lancelot::Dataset)
+        expect(File.exist?(existing_file)).to be false
+        expect(File.exist?(File.join(dataset_path, "_versions"))).to be true
+      end
+    end
+
+    context "with empty directory" do
+      before do
+        FileUtils.mkdir_p(dataset_path)
+      end
+
+      it "creates dataset in empty directory without error" do
+        expect(Dir.empty?(dataset_path)).to be true
+        
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        
+        expect(dataset).to be_a(Lancelot::Dataset)
+        expect(File.exist?(File.join(dataset_path, "_versions"))).to be true
+      end
+    end
+
+    context "with existing valid dataset" do
+      before do
+        initial_dataset = Lancelot::Dataset.create(dataset_path, schema: schema)
+        initial_dataset.add_documents([
+          { text: "doc1", embedding: [0.1, 0.2, 0.3] },
+          { text: "doc2", embedding: [0.4, 0.5, 0.6] }
+        ])
+      end
+
+      it "opens existing dataset without overwriting" do
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        
+        expect(dataset.count).to eq(2)
+        docs = dataset.all
+        expect(docs.map { |d| d[:text] }).to contain_exactly("doc1", "doc2")
+      end
+
+      it "ignores mode: 'overwrite' when opening valid dataset" do
+        # Even with overwrite mode, should open existing valid dataset
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema, mode: "overwrite")
+        
+        expect(dataset.count).to eq(2)
+      end
+    end
+
+    context "with non-existent path" do
+      it "creates new dataset at non-existent path" do
+        expect(File.exist?(dataset_path)).to be false
+        
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        
+        expect(dataset).to be_a(Lancelot::Dataset)
+        expect(File.exist?(dataset_path)).to be true
+        expect(File.exist?(File.join(dataset_path, "_versions"))).to be true
+      end
+
+      it "creates parent directories if needed" do
+        nested_path = File.join(dataset_path, "nested", "deep", "dataset")
+        expect(File.exist?(File.dirname(nested_path))).to be false
+        
+        dataset = Lancelot::Dataset.open_or_create(nested_path, schema: schema)
+        
+        expect(dataset).to be_a(Lancelot::Dataset)
+        expect(File.exist?(nested_path)).to be true
+      end
+    end
+
+    context "with file instead of directory" do
+      before do
+        FileUtils.mkdir_p(File.dirname(dataset_path))
+        File.write(dataset_path, "I'm a file, not a directory")
+      end
+
+      it "raises an error when path is a file" do
+        expect {
+          Lancelot::Dataset.open_or_create(dataset_path, schema: schema)
+        }.to raise_error(ArgumentError)
+      end
+
+      it "can overwrite file with mode: 'overwrite'" do
+        expect(File.file?(dataset_path)).to be true
+        
+        dataset = Lancelot::Dataset.open_or_create(dataset_path, schema: schema, mode: "overwrite")
+        
+        expect(dataset).to be_a(Lancelot::Dataset)
+        expect(File.directory?(dataset_path)).to be true
+        expect(File.exist?(File.join(dataset_path, "_versions"))).to be true
+      end
+    end
   end
 
   describe "#add_documents" do
